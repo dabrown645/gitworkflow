@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 CONFIGDIR="${XDG_CONFIG_DIR:-$HOME/.config}"
-BRANCH=main
+PKGNAME=gitworkflow
+
+# BRANCH=main
 
 main() {
   clone_configuration
@@ -9,19 +11,19 @@ main() {
   # Setup links
   checkfiles=".gitconfig .gitalias.txt .gitmessage.txt"
 
-  check_link_files "${checkfiles}" "${CONFIGDIR}/gitworkflow/${BRANCH}" "${HOME}"
+  check_link_files "${checkfiles}" "${CONFIGDIR}/${PKGNAME}" "${HOME}"
 }
 
 clone_configuration() {
   # Clone the configuration
-  if [[ -d "${CONFIGDIR}/gitworkflow" ]]; then
-    echo "❌ ${CONFIGDIR}/gitworkflow already exists rename or remove it and run again"
+  if [[ -d "${CONFIGDIR}/${PKGNAME}" ]]; then
+    echo "❌ ${CONFIGDIR}/${PKGNAME} already exists rename or remove it and run again"
     exit 1
   else
-    git clone --depth 1 git@github.com:dabrown645/gitworkflow.git "${CONFIGDIR}/gitworkflow"
-    cd "${CONFIGDIR}/gitworkfile" || exit
-    git worktree add "${BRANCH}"
-    cd - || exit
+    git clone --depth 1 git@github.com:dabrown645/"${PKGNAME}".git "${CONFIGDIR}/${PKGNAME}"
+  #   cd "${CONFIGDIR}/gitworkfile" || exit
+  #   git worktree add "${BRANCH}"
+  #   cd - || exit
   fi
 
   # Setup github gitconfig file
@@ -32,7 +34,9 @@ clone_configuration() {
   # shellcheck disable=SC2034 # used for template substition with envsubstr
   read -rp "Enter user: " GUSER
 
-  envsubst <gitconfig.tmpl >gitconfig
+  export GNAME GEMAIL GUSER
+
+  envsubst <"${CONFIGDIR}/${PKGNAME}/gitconfig.tmpl" >"${CONFIGDIR}/${PKGNAME}/gitconfig"
 }
 
 check_link_files() {
@@ -60,6 +64,10 @@ check_link_files() {
   done
 }
 
-if [[ ${BASH_SOURCE[0]} == "${0}" ]]; then
-  main "${@}"
+# This block will exit if file was sourced
+if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
+  return 0 2>/dev/null || exit 0
 fi
+
+# If not sourced run main
+main "${@}"
