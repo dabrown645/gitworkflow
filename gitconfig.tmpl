@@ -1,0 +1,47 @@
+# This is Git's per-user configuration file.
+[user]
+  # Please adapt and uncomment the following lines:
+  name = "$GNAME"
+  email = "$GEMAIL"
+  username = "$GUSER"
+
+[pretty]
+  better-oneline = "format:%C(auto)%h%d %s %Cblue[%dn]"
+
+[diff]
+  tool = nvimdiff
+
+[core]
+  editor = nvim
+
+[merge]
+  tool = nvimdiff
+
+[push]
+  default = current
+
+[init]
+  defaultBranch = main
+
+[help]
+  autocorrect = 1
+
+[include]
+  path = ~/.gitalias.txt
+
+[alias]
+
+  # Some git worktree aliases
+  wt = worktree
+  wta = worktree add
+  wtl = worktree list
+  wtlock = worktree lock
+  wtm = worktree move
+  wtp = worktree prune
+  wtr = worktree remove
+  wtrepair = worktree repair
+  wtu = worktree unlock
+  # End git worktree aliases
+
+[commit]
+  template = /home/dabrown/.gitmessage.txt
