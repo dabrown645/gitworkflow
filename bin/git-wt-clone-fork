@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# git-clone-fork - Clone a forked repository and set up upstream remote
+# Usage: git-clone-fork <fork-url> <upstream-url> [directory-name]
+
+set -e
+
+if (($# < 2)) || (($# > 3)); then
+  echo "Usage: git-clone-fork <fork-url> <upstream-url> [directory-name]"
+  echo "Example: git-clone-fork https://github.com/yourname/quickemu.git https://github.com/wimpysworld/quickemu.git quickemu"
+  exit 1
+fi
+
+FORK_URL="$1"
+UPSTREAM_URL="$2"
+BASENAME="${FORK_URL##*/}"
+DIR_NAME="${3:-${BASENAME%.*}}"
+
+echo ""
+echo "Cloning forked repository ..."
+
+# Use the existing clone script
+git-wt-clone "$FORK_URL" "$DIR_NAME"
+
+echo ""
+echo "Adding upstream remotes ..."
+cd "$DIR_NAME"
+
+# Add upstream remote
+git remote add upstream "$UPSTREAM_URL"
+
+# Fetch from upstream
+git fetch upstream
+
+echo "✓ Fork cloned successfully"
+echo "✓ Upstream remote added"
+echo "✓ Upstream branches fetched"
+echo ""
+echo "Remotes:"
+git remote -v
+echo ""
+echo "To sync with upstream:"
+echo "  git fetch upstream"
+echo "  git merge upstream/main  # or upstream/master"
+echo ""
+echo "To create worktrees from upstream branches:"
+echo "  git-worktree-add upstream-feature-branch"
+echo ""
+echo "To list all worktrees:"
+echo "  git worktree list"
