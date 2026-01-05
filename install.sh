@@ -28,11 +28,11 @@ clone_configuration() {
 
   # Setup github gitconfig file
   # shellcheck disable=SC2034 # used for template substition with envsubstr
-  read -rp "Enter name: " GNAME
+  read -rp "Enter name: " GNAME </dev/tty # needed to get input when executed via pipe
   # shellcheck disable=SC2034 # used for template substition with envsubstr
-  read -rp "Enter email: " GEMAIL
+  read -rp "Enter email: " GEMAIL </dev/tty # needed to get input when executed via pipe
   # shellcheck disable=SC2034 # used for template substition with envsubstr
-  read -rp "Enter user: " GUSER
+  read -rp "Enter user: " GUSER </dev/tty # needed to get input when executed via pipe
 
   export GNAME GEMAIL GUSER
 
@@ -65,7 +65,7 @@ check_link_files() {
 }
 
 # This block will exit if file was sourced
-if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
+if [[ -n "${BASH_SOURCE[0]}" && ${BASH_SOURCE[0]} != "${0}" ]]; then
   return 0 2>/dev/null || exit 0
 fi
 
