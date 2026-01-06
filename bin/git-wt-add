@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+# git-wt-add - Add a new branch/worktree
+# Usage: git-wt-add <branch-name> [create-from-branch]
+
+#
+set -e
+
+main() {
+  if (($# < 1)) || (($# > 2)); then
+    echo "Usage: git-wt-add <branch-name> [create-from-branch]"
+    echo "Example: git-wt-add feature-new-feature"
+    echo "Example: git-wt-add hotfix/login-bug main"
+    exit 1
+  fi
+
+  BRANCH_NAME="${1}"
+  FROM_BRANCH="${2}"
+  DIR_NAME=$(echo "${BRANCH_NAME}" | tr '/' '-')
+
+  # common_dir=$(git worktree list | grep bare | cut -f 1); then
+  # echo ${common_dir}
+  # exit
+  # if ! common_dir=$(git worktree list | grep bare | cut -f 1); then
+
+  if ! read common_dir rest < <(git worktree list 2>/dev/null | grep bare | cut -f 1); then
+    echo "Error: Not in a git repository or .git directory not found"
+    exit 1
+  fi
+
+  if [[ -d "${DIR_NAME}" ]]; then
+    echo "Error: Worktree directory ${DIR_NAME} already exists"
+    exit 1
+  fi
+
+  cd "${common_dir}" >/dev/null || exit
+
+  if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
+    # Branch exists locally
+    git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
+  elif git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+    # Branch exists remotely
+    git worktree add "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+  else
+    # Branch doesn't exist, create git
+    if [[ -z "${BRANCH_NAME}" ]]; then
+      git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "${FROM_BRANCH}"
+    else
+      git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}"
+    fi
+  fi
+
+  echo "✓ Worktree created successfully"
+
+  cd - >/dev/null || exit
+
+  echo ""
+  echo "To work on this branch:"
+  echo "  cd ${BRANCH_NAME}"
+  echo ""
+  echo "Current worktrees"
+  git worktree list
+
+}
+
+# This block will exit if file was sourced
+# if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
+#   return 0 2>/dev/null || exit 0
+# fi
+
+# If not sourced run main
+main "${@}"
