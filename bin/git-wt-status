@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# git-wt-status - List and manage worktrees
+# Usage: git-wt-status
+
+set -e
+
+echo "Git Worktrees Status"
+echo "===================="
+echo ""
+
+# List all worktrees
+git worktree list
+
+echo ""
+echo "Worktree Details:"
+echo "-----------------"
+
+while read -r worktree hash branch; do
+  cd "${worktree}" >/dev/null
+
+  # Check if worktree is clean
+  STATUS=$(git status --porcelain 2>/dev/null)
+  if [[ -z "${STATUS}" ]]; then
+    CLEAN_STATUS="✓ clean"
+  else
+    CHANGED_COUNT=$(echo "$STATUS" | wc -l)
+    CLEAN_STATUS="⚠ $CHANGED_COUNT changed files"
+  fi
+
+  # Get current commit info
+  COMMIT_MSG=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo "unknown")
+
+  echo "${worktree} -> ${branch} (${hash}) [${CLEAN_STATUS}]"
+  echo "  └─ $COMMIT_MSG"
+  echo ""
+
+  cd - >/dev/null
+done < <(git worktree list | grep -v bare)
