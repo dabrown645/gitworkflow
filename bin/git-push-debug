@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# git-push-debug - Diagnose push issues for git worktree projects
+# Usage: git-push-debug
+
+set -e
+
+echo "Git Push Diagnostic Tool"
+echo "========================"
+echo ""
+
+echo "1. Current Directory:"
+echo "   $(pwd)"
+echo ""
+
+echo "2. Git Repository Status:"
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "   ✅ Git repository found"
+  echo "   Git directory: $(git rev-parse --git-dir)"
+  echo "   Working directory: $(git rev-parse --show-toplevel)"
+else
+  echo "   ❌ NOT in a git repository"
+  echo "   This is likely the problem!"
+  echo ""
+  echo "   For git-init-worktree projects, navigate to:"
+  echo "   cd your-project/main"
+  echo ""
+  exit 1
+fi
+echo ""
+
+echo "3. Current Branch:"
+if BRANCH=$(git branch --show-current 2>/dev/null); then
+  echo "   ✅ Current branch: $BRANCH"
+else
+  echo "   ❌ No current branch"
+fi
+echo ""
+
+echo "4. Remote Configuration:"
+if git remote show >/dev/null 2>&1; then
+  echo "   ✅ Remotes configured:"
+  git remote -v | sed -e 's/^/      /'
+else
+  echo "   ❌ No remotes configured"
+  echo "   This is likely the problem!"
+  echo ""
+  echo "   Add remote with:"
+  echo "   git remote add origin <repository-url>"
+  echo ""
+  exit 1
+fi
+echo ""
+
+echo "5. Branch Tracking:"
+if git branch -vv | grep -q '\[origin/'; then
+  echo "   ✅ Branch is tracking remote:"
+  git branch -vv | grep '\[origin/'
+else
+  echo "   ⚠️  Branch is not tracking remote"
+  echo "   This might cause push issues"
+  echo ""
+  echo "   Set upstream tracking with:"
+  echo "   git push -u origin $BRANCH"
+  echo ""
+fi
+echo ""
+
+echo "6. Uncommitted Changes:"
+if git diff --quiet && git diff --cached --quiet; then
+  echo "   ✅ No uncommitted changes"
+else
+  echo "   ⚠️  You have uncommitted changes"
+  echo "   This might affect push but shouldn't cause errors"
+  echo ""
+  git status --short | sed -e 's/^/      /'
+fi
+echo ""
+
+echo "7. Recommended Push Command:"
+if [ -n "$BRANCH" ]; then
+  echo "   git push -u origin $BRANCH"
+else
+  echo "   git push"
+fi
+echo ""
+
+echo "Common Issues and Solutions:"
+echo "----------------------------"
+echo "❌ 'Not a git repository': Navigate to worktree directory"
+echo "   cd your-project/main  # Not the bare .git directory"
+echo ""
+echo "❌ 'No remotes configured': Add remote first"
+echo "   git remote add origin <url>"
+echo ""
+echo "❌ 'Branch doesn't track remote': Use -u flag first time"
+echo "   git push -u origin <branch>"
