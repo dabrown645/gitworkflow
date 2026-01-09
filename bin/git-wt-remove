@@ -73,7 +73,7 @@ cd "${current_dir}"
 echo "Removing worktree: ${WT_NAME}"
 git worktree remove "${WT_NAME}" "${FORCE}"
 
-echo "✓ Worktree removed successfully"
+echo "✅ Worktree removed successfully"
 echo ""
 echo "Remaining worktrees."
 git worktree list

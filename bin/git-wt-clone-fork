@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # git-clone-fork - Clone a forked repository and set up upstream remote
 # Usage: git-clone-fork <fork-url> <upstream-url> [directory-name]
@@ -32,9 +32,9 @@ git remote add upstream "$UPSTREAM_URL"
 # Fetch from upstream
 git fetch upstream
 
-echo "✓ Fork cloned successfully"
-echo "✓ Upstream remote added"
-echo "✓ Upstream branches fetched"
+echo "✅ Fork cloned successfully"
+echo "✅ Upstream remote added"
+echo "✅ Upstream branches fetched"
 echo ""
 echo "Remotes:"
 git remote -v

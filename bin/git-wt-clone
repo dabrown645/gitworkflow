@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # git-wt-clone - Clone a repository and set up worktree structure
 # Usage: git-wt-clone <repo-url> [directory-name]
@@ -22,8 +22,8 @@ main() {
 
   add_default_branch
 
-  echo "✓ Repository cloned successfully"
-  echo "✓ Created worktree for default branch: $DEFAULT_BRANCH"
+  echo "✅ Repository cloned successfully"
+  echo "✅  worktree for default branch: ${DIR_NAME}"
   echo ""
   echo "Directory structure:"
   echo "$DIR_NAME/"

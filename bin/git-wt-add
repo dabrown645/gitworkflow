@@ -18,11 +18,6 @@ main() {
   FROM_BRANCH="${2}"
   DIR_NAME=$(echo "${BRANCH_NAME}" | tr '/' '-')
 
-  # common_dir=$(git worktree list | grep bare | cut -f 1); then
-  # echo ${common_dir}
-  # exit
-  # if ! common_dir=$(git worktree list | grep bare | cut -f 1); then
-
   if ! read common_dir rest < <(git worktree list 2>/dev/null | grep bare | cut -f 1); then
     echo "Error: Not in a git repository or .git directory not found"
     exit 1
@@ -54,6 +49,18 @@ main() {
 
   cd - >/dev/null || exit
 
+  # TODO: Add auto-set in the future will need to add parsing and pluggin infrastructure
+  auto_setup=false
+  # Auto-setup plugins if requested
+  if ${auto_setup}; then
+    echo "Running auto-setup for worktree..."
+    if command -v plugin-manager >/dev/null 2>&1; then
+      plugin-manager auto-setup "${DIR_NAME}"
+    else
+      echo "Warning: plugin-manager not found. Install plugin system for auto-setup"o
+    fi
+  fi
+
   echo ""
   echo "To work on this branch:"
   echo "  cd ${BRANCH_NAME}"
@@ -64,9 +71,10 @@ main() {
 }
 
 # This block will exit if file was sourced
-# if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
-#   return 0 2>/dev/null || exit 0
-# fi
+if [[ -n "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  # BASH_SOURCE has value AND it's different from $0 = sourced
+  return 0 2>/dev/null || exit 0
+fi
 
 # If not sourced run main
 main "${@}"
