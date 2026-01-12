@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+# git-wt-remove - Safely remove a worktree
+# Usage: git-wt-remove <branch-name> [--force]
+
+set -e
+
+if [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
+    echo "Usage: git-wt-remove <branch-name> [--force]"
+    echo ""
+    echo "Options:"
+    echo "  --force      Remove worktree even if it has uncommitted changes"
+    echo ""
+    echo "Examples:"
+    echo "  git-wt-remove feature-branch"
+    echo "  git-wt-remove old-feature --force"
+    echo ""
+    echo "A worktree can only be removed if you're not currently in it."
+    echo ""
+    exit 0
+fi
+
+WT_NAME="${1}"
+if [[ "${2}" == "--force" ]]; then
+  force=true
+  FORCE="--force"
+else
+  force=false
+  FORCE=""
+fi
+
+if ! read common_dir unused < <(git worktree list 2>/dev/null | grep bare | cut -f 1); then
+  echo "Error: Not in a git repository or .git directory not found"
+  exit 1
+fi
+
+if [[ "${PWD}" =~ ^${common_dir}/${WT_NAME}$ ]]; then
+  echo "Error: Can't delete worktree ${WT_NAME} while inside it"
+  exit 1
+fi
+
+START_DIR="${PWD}"
+
+# Save current directory (optional return)
+cd "${common_dir}" >/dev/null || exit
+
+# Check if worktree exists
+if [[ ! -d "${WT_NAME}" ]]; then
+  echo "Error: Worktree directory ${WT_NAME} not found"
+  echo "Available worktrees:"
+  git worktree list
+  exit 1
+fi
+
+# Get worktree status - run from repository directory
+cd "${common_dir}"
+STATUS=$(git -C "${WT_NAME}" status --porcelain 2>/dev/null)
+
+# Check if worktree is clean (empty status = clean)
+if [[ -z "${STATUS}" ]]; then # STATUS empty = clean
+  echo "✅ Worktree '${WT_NAME}' is clean"
+  echo "🗑️  Deleting clean worktree as requested"
+  git worktree remove "${WT_NAME}"
+  exit 0
+else
+  # Worktree has changes, proceed with force checking
+  if ${force}; then
+    echo "⚠ Warning: Worktree '${WT_NAME}' has uncommitted changes"
+    echo " These changes will be lost!"
+    echo ""
+    read -p "Are you sure you want to continue? (y/N): " confirm
+    if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
+      echo "Operation cancelled"
+      exit 0
+    fi
+  else
+    echo "Error: Worktree ${WT_NAME} has uncommitted changes:"
+    echo "${STATUS}"
+    echo ""
+    echo "Please commit or stash your changes first, or use --force to remove anyway"
+    exit 1
+  fi
+fi
+
+echo "Removing worktree: ${WT_NAME}"
+git -C "${common_dir}" worktree remove "${WT_NAME}" "${FORCE}"
+
+echo ""
+echo "✅ Worktree removed successfully"
+echo ""
+echo "Remaining worktrees."
+git -C "${common_dir}" worktree list
+
+# Optional: return to original directory if one was saved
+if [[ -n "${START_DIR}" ]]; then
+  echo ""
+  echo "🏠 Returning to ${START_DIR}"
+  cd "${START_DIR}"
+fi

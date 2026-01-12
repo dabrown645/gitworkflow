@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+# git-wt-clone - Clone a repository and set up worktree structure
+# Usage: git-wt-clone <repo-url> [directory-name]
+
+set -e
+
+main() {
+  if (($# < 1)) || (($# > 2)); then
+    echo "Usage: git-wt-clone <repo-url> [directory-name]"
+    echo "Example: git-wt-clone https://github.com/user/repo.git my_project"
+    exit 1
+  fi
+
+  REPO_URL="$1"
+  BASENAME="${REPO_URL##*/}"
+  DIR_NAME="${2:-${BASENAME%.*}}" # Exatract dir_name from url if not provided
+
+  clone_repo "${REPO_URL}" "${DIR_NAME}"
+
+  cd "${DIR_NAME}"
+
+  add_default_branch
+
+  echo "✅ Repository cloned successfully"
+  echo "✅  worktree for default branch: ${DIR_NAME}"
+  echo ""
+  echo "Directory structure:"
+  echo "$DIR_NAME/"
+  echo "├── $DEFAULT_BRANCH  # (current branch)"
+  echo "└── .git"
+  echo ""
+  echo "To add a new branch worktree:"
+  echo "  cd $DIR_NAME && git-worktree-add -b <type>/<branch-name> <type>-<branch-name> <from-branch>"
+  echo ""
+  echo "To list all worktrees:"
+  echo "  cd $DIR_NAME && git worktree list"
+}
+
+clone_repo() {
+  local repo="${1}"
+  local dir="${2}"
+
+  if [[ -d "${dir}" ]]; then
+    echo "Error: Directory ${dir} already exists"
+    exit 1
+  fi
+
+  echo "Cloning repository and setting up worktree structure..."
+
+  # Create main directory
+  mkdir -p "$dir"
+  cd "$dir"
+
+  # Clone repository (bare)
+  git clone --bare "$repo" .git
+  
+  # Configure remote to fetch all branches and set up proper refs
+  git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  
+  # Fetch all remote branches
+  git fetch --all --prune
+
+  cd -
+}
+
+add_default_branch() {
+
+  local default_branch
+  default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+  
+  # If not set try for "main" or "master"
+  if [[ -z "${default_branch}" ]]; then
+    default_branch=$(git branch -r | grep -E 'origin/main|origin/master' | grep -v HEAD | head -n 1 | cut -f 2 -d '/')
+  fi
+  
+  # Fetch all remote branches to ensure they're available
+  git fetch --all
+  
+  # Create main worktree for default branch
+  git worktree add "${default_branch}"
+  
+  # Set up upstream tracking for default branch
+  if git rev-parse --verify "origin/${default_branch}" >/dev/null 2>&1; then
+    git branch --set-upstream-to=origin/"${default_branch}" "${default_branch}"
+    echo "✅ Upstream tracking set: ${default_branch} → origin/${default_branch}"
+  else
+    echo "ℹ️  Default branch ${default_branch} created. Use 'git push -u origin ${default_branch}' to set up tracking"
+  fi
+}
+
+# This block will exit if file was sourced
+if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+# If not sourced run main
+main "${@}"
