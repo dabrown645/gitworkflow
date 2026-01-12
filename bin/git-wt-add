@@ -3,7 +3,6 @@
 # git-wt-add - Add a new branch/worktree
 # Usage: git-wt-add <branch-name> [create-from-branch]
 
-#
 set -e
 
 main() {
@@ -28,36 +27,44 @@ main() {
     exit 1
   fi
 
+  pushd "${common_dir}"
+
   cd "${common_dir}" >/dev/null || exit
 
+  set -x
   if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
     # Branch exists locally
     git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
+    # Set up upstream tracking if remote branch exists
+    if git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+      git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
+      echo "✅ Upstream tracking set: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
+    fi
   elif git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
-    # Branch exists remotely
-    git worktree add "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+    # Branch exists remotely - create worktree that tracks remote branch
+    git worktree add "${DIR_NAME}" "origin/${BRANCH_NAME}"
+    echo "✅ Worktree created with tracking: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
   else
-    # Branch doesn't exist, create git
-    if [[ -z "${BRANCH_NAME}" ]]; then
+    # Branch doesn't exist, create it
+    if [[ -n "${FROM_BRANCH}" ]]; then
       git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "${FROM_BRANCH}"
     else
       git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}"
     fi
+    echo "ℹ️  New branch created. Use 'git push -u origin ${BRANCH_NAME}' to set up tracking"
   fi
+  set +x
 
-  echo "✓ Worktree created successfully"
+  popd
 
-  cd - >/dev/null || exit
-
-  # TODO: Add auto-set in the future will need to add parsing and pluggin infrastructure
-  auto_setup=false
   # Auto-setup plugins if requested
+  auto_setup=false
   if ${auto_setup}; then
     echo "Running auto-setup for worktree..."
     if command -v plugin-manager >/dev/null 2>&1; then
       plugin-manager auto-setup "${DIR_NAME}"
     else
-      echo "Warning: plugin-manager not found. Install plugin system for auto-setup"o
+      echo "Warning: plugin-manager not found. Install plugin system for auto-setup"
     fi
   fi
 
@@ -67,14 +74,10 @@ main() {
   echo ""
   echo "Current worktrees"
   git worktree list
-
 }
 
-# This block will exit if file was sourced
 if [[ -n "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != "${0}" ]]; then
-  # BASH_SOURCE has value AND it's different from $0 = sourced
-  return 0 2>/dev/null || exit 0
+  return 0 2>/dev/null || exit 0 # This block will exit if file was sourced
 fi
 
-# If not sourced run main
-main "${@}"
+main "${@}" # If not sourced run main

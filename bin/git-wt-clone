@@ -48,12 +48,18 @@ clone_repo() {
 
   echo "Cloning repository and setting up worktree structure..."
 
-  # Create the main directory
+  # Create main directory
   mkdir -p "$dir"
   cd "$dir"
 
-  # Clone the repository (bare)
+  # Clone repository (bare)
   git clone --bare "$repo" .git
+  
+  # Configure remote to fetch all branches and set up proper refs
+  git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  
+  # Fetch all remote branches
+  git fetch --all --prune
 
   cd -
 }
@@ -61,10 +67,26 @@ clone_repo() {
 add_default_branch() {
 
   local default_branch
-  default_branch=$(git rev-parse --abbrev-ref HEAD)
-
-  # Create the main worktree for the default branch
+  default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+  
+  # If not set try for "main" or "master"
+  if [[ -z "${default_branch}" ]]; then
+    default_branch=$(git branch -r | grep -E 'origin/main|origin/master' | grep -v HEAD | head -n 1 | cut -f 2 -d '/')
+  fi
+  
+  # Fetch all remote branches to ensure they're available
+  git fetch --all
+  
+  # Create main worktree for default branch
   git worktree add "${default_branch}"
+  
+  # Set up upstream tracking for default branch
+  if git rev-parse --verify "origin/${default_branch}" >/dev/null 2>&1; then
+    git branch --set-upstream-to=origin/"${default_branch}" "${default_branch}"
+    echo "✅ Upstream tracking set: ${default_branch} → origin/${default_branch}"
+  else
+    echo "ℹ️  Default branch ${default_branch} created. Use 'git push -u origin ${default_branch}' to set up tracking"
+  fi
 }
 
 # This block will exit if file was sourced
