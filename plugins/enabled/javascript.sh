@@ -1,0 +1,1 @@
+/home/dabrown/Code/gitworkflow/feature-autosetup-plugins/plugins/available/javascript.sh

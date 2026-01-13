@@ -1,0 +1,31 @@
+# Default configuration for git-worktree plugin system
+
+auto_setup: false
+
+# Enabled plugins (comment out or remove to disable)
+enabled_plugins:
+  - javascript
+  - rust
+  - python
+
+# Plugin-specific settings
+plugin_settings:
+  javascript:
+    # Preferred package manager: npm, yarn, pnpm, auto (auto-detect)
+    package_manager: auto
+    # Share node_modules from main worktree
+    share_node_modules: true
+    # Auto-install dependencies when creating worktree
+    auto_install: true
+    
+  rust:
+    # Share target directory from main worktree
+    share_target: true
+    # Run cargo check after worktree creation
+    auto_cargo_check: true
+    
+  python:
+    # Virtual environment location: venv, .venv, local, system
+    venv_location: .venv
+    # Auto-install dependencies when creating worktree
+    auto_install: true
