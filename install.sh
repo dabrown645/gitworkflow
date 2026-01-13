@@ -19,7 +19,7 @@ clone_pkg_to_configdir() {
     echo "❌ ${configdir}/${pkgname} already exists rename or remove it and run again"
     exit 1
   else
-    git clone --depth 1 --branch feature/worktree-scripts git@github.com:dabrown645/"${pkgname}".git "${configdir}/${pkgname}"
+    git clone --depth 1 git@github.com:dabrown645/"${pkgname}".git "${configdir}/${pkgname}"
   fi
 
   # shellcheck disable=SC2034 # used for template substitution with envsubst
