@@ -11,39 +11,39 @@ parse_args() {
   NO_AUTO_SETUP=false
   BRANCH_NAME=""
   FROM_BRANCH=""
-  
+
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --auto-setup)
-        AUTO_SETUP=true
-        shift
-        ;;
-      --no-auto-setup)
-        NO_AUTO_SETUP=true
-        shift
-        ;;
-      --help|-h)
+    --auto-setup)
+      AUTO_SETUP=true
+      shift
+      ;;
+    --no-auto-setup)
+      NO_AUTO_SETUP=true
+      shift
+      ;;
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    *)
+      if [[ -z "$BRANCH_NAME" ]]; then
+        BRANCH_NAME="$1"
+      elif [[ -z "$FROM_BRANCH" ]]; then
+        FROM_BRANCH="$1"
+      else
+        echo "Error: Too many arguments"
         show_help
-        exit 0
-        ;;
-      *)
-        if [[ -z "$BRANCH_NAME" ]]; then
-          BRANCH_NAME="$1"
-        elif [[ -z "$FROM_BRANCH" ]]; then
-          FROM_BRANCH="$1"
-        else
-          echo "Error: Too many arguments"
-          show_help
-          exit 1
-        fi
-        shift
-        ;;
+        exit 1
+      fi
+      shift
+      ;;
     esac
   done
 }
 
 show_help() {
-  cat << 'EOF'
+  cat <<'EOF'
 Usage: git-wt-add <branch-name> [create-from-branch] [options]
 
 Arguments:
@@ -71,24 +71,24 @@ EOF
 check_auto_setup_config() {
   # Check config file for auto_setup setting
   local config_file="${XDG_CONFIG_DIR:-$HOME/.config}/gitworkflow/plugins/config/default.yaml"
-  
+
   if [[ -f "$config_file" ]]; then
     # Parse YAML for auto_setup value
     local config_value
     config_value=$(grep '^auto_setup:' "$config_file" 2>/dev/null | cut -d: -f2 | tr -d ' ')
     if [[ "$config_value" == "true" ]]; then
-      return 0  # auto_setup is true in config
+      return 0 # auto_setup is true in config
     fi
   fi
-  return 1  # auto_setup is false or not found
+  return 1 # auto_setup is false or not found
 }
 
 should_run_auto_setup() {
   # CLI flags take precedence
   if [[ "$AUTO_SETUP" == true ]]; then
-    return 0  # Force enable
+    return 0 # Force enable
   elif [[ "$NO_AUTO_SETUP" == true ]]; then
-    return 1  # Force disable
+    return 1 # Force disable
   else
     # Check config file
     check_auto_setup_config
@@ -97,7 +97,7 @@ should_run_auto_setup() {
 
 main() {
   parse_args "$@"
-  
+
   if [[ -z "$BRANCH_NAME" ]]; then
     echo "Error: Branch name is required"
     show_help
@@ -120,7 +120,6 @@ main() {
 
   cd "${common_dir}" >/dev/null || exit
 
-  set -x
   if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
     # Branch exists locally
     git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
@@ -142,7 +141,6 @@ main() {
     fi
     echo "ℹ️  New branch created. Use 'git push -u origin ${BRANCH_NAME}' to set up tracking"
   fi
-  set +x
 
   popd
 
