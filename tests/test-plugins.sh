@@ -20,7 +20,7 @@ TESTS_FAILED=0
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PLUGIN_MANAGER="$PROJECT_DIR/plugins/plugin-manager.sh"
+PLUGIN_MANAGER="$PROJECT_DIR/bin/plugin-manager"
 TEST_DIR="/tmp/git-worktree-plugin-tests"
 
 # Helper functions
@@ -96,6 +96,9 @@ setup_test_env() {
     
     # Make plugins executable
     chmod +x "$PROJECT_DIR/plugins/available"/*.sh
+    
+    # Make plugin-manager executable
+    chmod +x "$PLUGIN_MANAGER"
 }
 
 create_sample_projects() {
@@ -234,6 +237,46 @@ test_full_workflow() {
     TESTS_TOTAL=$((TESTS_TOTAL + 1))
 }
 
+# Configuration tests
+test_config_file_parsing() {
+    log_info "Testing configuration file parsing"
+    
+    # Create test config
+    mkdir -p "$TEST_DIR/config-test/plugins/config"
+    cat > "$TEST_DIR/config-test/plugins/config/default.yaml" << 'EOF'
+auto_setup: true
+test_key: test_value
+EOF
+    
+    # Test config loading
+    export XDG_CONFIG_DIR="$TEST_DIR/config-test"
+    cd "$TEST_DIR/js-project"
+    if grep -q "auto_setup.*true" "$TEST_DIR/config-test/plugins/config/default.yaml"; then
+        log_success "Config file parsing test"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        log_error "Config file parsing test failed"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+    TESTS_TOTAL=$((TESTS_TOTAL + 1))
+    
+    unset XDG_CONFIG_DIR
+}
+
+test_git_wt_add_flags() {
+    log_info "Testing git-wt-add CLI flags"
+    
+    # Test help flag
+    if "$PROJECT_DIR/bin/git-wt-add" --help | grep -q "\-\-auto-set"; then
+        log_success "git-wt-add help shows auto-set flag"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        log_error "git-wt-add help missing auto-set flag"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+    TESTS_TOTAL=$((TESTS_TOTAL + 1))
+}
+
 print_summary() {
     echo ""
     echo "================================"
@@ -286,6 +329,8 @@ main() {
     
     # Integration tests
     test_full_workflow
+    test_config_file_parsing
+    test_git_wt_add_flags
     
     # Summary and cleanup
     print_summary

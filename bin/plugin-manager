@@ -1,0 +1,270 @@
+#!/bin/bash
+
+# plugin-manager - Manages language-specific plugins for git worktrees
+# Usage: plugin-manager <command> [args]
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGINS_DIR="$(dirname "$SCRIPT_DIR")/plugins"
+AVAILABLE_DIR="$PLUGINS_DIR/available"
+ENABLED_DIR="$PLUGINS_DIR/enabled"
+CONFIG_DIR="$PLUGINS_DIR/config"
+
+# Load configuration
+load_config() {
+    # Search for config file in XDG_CONFIG_DIR first, then fallback to local config
+    local config_locations=(
+        "${XDG_CONFIG_DIR:-$HOME/.config}/gitworkflow/plugins/config/default.yaml"
+        "$CONFIG_DIR/default.yaml"
+    )
+    
+    for config_file in "${config_locations[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            # Parse YAML (basic key-value parsing)
+            while IFS=':' read -r key value; do
+                [[ "$key" =~ ^[[:space:]]*# ]] && continue
+                [[ -z "$key" ]] && continue
+                key=$(echo "$key" | xargs)
+                value=$(echo "$value" | xargs)
+                # Skip invalid keys and complex YAML structures
+                if [[ "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] && [[ "$value" != *"["* ]] && [[ "$value" != *"]"* ]]; then
+                    export PLUGIN_CONFIG_$key="$value"
+                fi
+            done < "$config_file"
+            break  # Use first found config file
+        fi
+    done
+}
+
+# List all available plugins
+list_available() {
+    echo "Available plugins:"
+    for plugin in "$AVAILABLE_DIR"/*.sh; do
+        [[ -f "$plugin" ]] && echo "  $(basename "$plugin" .sh)"
+    done
+}
+
+# List enabled plugins
+list_enabled() {
+    echo "Enabled plugins:"
+    if [[ ! -d "$ENABLED_DIR" ]]; then
+        echo "  (none)"
+        return
+    fi
+    
+    for plugin in "$ENABLED_DIR"/*.sh; do
+        [[ -f "$plugin" ]] && echo "  $(basename "$plugin" .sh)"
+    done
+}
+
+# Enable a plugin
+enable_plugin() {
+    local plugin_name="$1"
+    local plugin_file="$AVAILABLE_DIR/$plugin_name.sh"
+    local enabled_file="$ENABLED_DIR/$plugin_name.sh"
+    
+    if [[ ! -f "$plugin_file" ]]; then
+        echo "Error: Plugin '$plugin_name' not found in available plugins"
+        return 1
+    fi
+    
+    if [[ -f "$enabled_file" ]]; then
+        echo "Plugin '$plugin_name' is already enabled"
+        return 0
+    fi
+    
+    mkdir -p "$ENABLED_DIR"
+    ln -sf "$plugin_file" "$enabled_file"
+    echo "Enabled plugin: $plugin_name"
+}
+
+# Disable a plugin
+disable_plugin() {
+    local plugin_name="$1"
+    local enabled_file="$ENABLED_DIR/$plugin_name.sh"
+    
+    if [[ ! -f "$enabled_file" ]]; then
+        echo "Error: Plugin '$plugin_name' is not enabled"
+        return 1
+    fi
+    
+    rm "$enabled_file"
+    echo "Disabled plugin: $plugin_name"
+}
+
+# Auto-detect and setup plugins for a worktree
+auto_setup() {
+    local worktree_dir="$1"
+    
+    if [[ ! -d "$worktree_dir" ]]; then
+        echo "Error: Worktree directory '$worktree_dir' not found"
+        return 1
+    fi
+    
+    echo "Auto-setting up plugins for: $worktree_dir"
+    
+    cd "$worktree_dir"
+    
+    # Check each enabled plugin for detection
+    for plugin_file in "$ENABLED_DIR"/*.sh; do
+        [[ -f "$plugin_file" ]] || continue
+        
+        plugin_name=$(basename "$plugin_file" .sh)
+        echo "Checking plugin: $plugin_name"
+        
+        # Source the plugin
+        source "$plugin_file"
+        
+        # Call plugin_detect function
+        if plugin_detect; then
+            echo "✓ Detected $plugin_name project"
+            if plugin_setup_worktree "$worktree_dir"; then
+                echo "✓ Setup completed for $plugin_name"
+            else
+                echo "❌ Setup failed for $plugin_name"
+            fi
+        fi
+    done
+}
+
+# Setup a specific plugin
+setup() {
+    local plugin_name="$1"
+    local worktree_dir="${2:-$(pwd)}"
+    local plugin_file="$ENABLED_DIR/$plugin_name.sh"
+    
+    if [[ ! -f "$plugin_file" ]]; then
+        echo "Error: Plugin '$plugin_name' is not enabled"
+        return 1
+    fi
+    
+    source "$plugin_file"
+    
+    cd "$worktree_dir"
+    if plugin_setup_worktree "$worktree_dir"; then
+        echo "✓ Setup completed for $plugin_name"
+    else
+        echo "❌ Setup failed for $plugin_name"
+        return 1
+    fi
+}
+
+# List plugin status for a worktree
+list_status() {
+    local worktree_dir="${1:-$(pwd)}"
+    
+    if [[ ! -d "$worktree_dir" ]]; then
+        echo "Error: Worktree directory '$worktree_dir' not found"
+        return 1
+    fi
+    
+    cd "$worktree_dir"
+    
+    for plugin_file in "$ENABLED_DIR"/*.sh; do
+        [[ -f "$plugin_file" ]] || continue
+        
+        plugin_name=$(basename "$plugin_file" .sh)
+        source "$plugin_file"
+        
+        if plugin_detect; then
+            plugin_list_status
+        fi
+    done
+}
+
+# Cleanup a worktree before removal
+cleanup() {
+    local worktree_dir="$1"
+    
+    if [[ ! -d "$worktree_dir" ]]; then
+        echo "Error: Worktree directory '$worktree_dir' not found"
+        return 1
+    fi
+    
+    echo "Cleaning up plugins for: $worktree_dir"
+    
+    cd "$worktree_dir"
+    
+    for plugin_file in "$ENABLED_DIR"/*.sh; do
+        [[ -f "$plugin_file" ]] || continue
+        
+        plugin_name=$(basename "$plugin_file" .sh)
+        source "$plugin_file"
+        
+        if plugin_detect; then
+            echo "Cleaning up plugin: $plugin_name"
+            plugin_cleanup_worktree "$worktree_dir"
+        fi
+    done
+}
+
+# Show help
+show_help() {
+    cat << EOF
+Plugin Manager for Git Worktrees
+
+Usage: plugin-manager <command> [args]
+
+Commands:
+  list-available          List all available plugins
+  list-enabled           List enabled plugins
+  enable <plugin>        Enable a plugin
+  disable <plugin>       Disable a plugin
+  auto-setup <dir>       Auto-detect and setup plugins for worktree
+  setup <plugin> [dir]   Setup specific plugin for worktree
+  list-status [dir]      Show plugin status for worktree
+  cleanup <dir>          Cleanup plugins before worktree removal
+  help                   Show this help
+
+Examples:
+  plugin-manager enable javascript
+  plugin-manager auto-setup feature-auth
+  plugin-manager setup rust .
+  plugin-manager list-status main
+
+EOF
+}
+
+# Main script logic
+load_config
+
+case "${1:-help}" in
+    list-available)
+        list_available
+        ;;
+    list-enabled)
+        list_enabled
+        ;;
+    enable)
+        [[ $# -lt 2 ]] && { echo "Error: Plugin name required"; exit 1; }
+        enable_plugin "$2"
+        ;;
+    disable)
+        [[ $# -lt 2 ]] && { echo "Error: Plugin name required"; exit 1; }
+        disable_plugin "$2"
+        ;;
+    auto-setup)
+        [[ $# -lt 2 ]] && { echo "Error: Worktree directory required"; exit 1; }
+        auto_setup "$2"
+        ;;
+    setup)
+        [[ $# -lt 2 ]] && { echo "Error: Plugin name required"; exit 1; }
+        setup "$2" "${3:-$(pwd)}"
+        ;;
+    list-status)
+        list_status "$2"
+        ;;
+    cleanup)
+        [[ $# -lt 2 ]] && { echo "Error: Worktree directory required"; exit 1; }
+        cleanup "$2"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Use 'plugin-manager help' for usage information"
+        exit 1
+        ;;
+esac
