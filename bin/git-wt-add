@@ -14,7 +14,7 @@ parse_args() {
   
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --auto-set)
+      --auto-setup)
         AUTO_SETUP=true
         shift
         ;;
@@ -51,17 +51,17 @@ Arguments:
   create-from-branch   Base branch to create from (optional)
 
 Options:
-  --auto-set           Enable plugin auto-setup for this worktree
+  --auto-setup          Enable plugin auto-setup for this worktree
   --no-auto-setup      Disable plugin auto-setup for this worktree
   --help, -h           Show this help
 
 Examples:
   git-wt-add feature-new-feature                    # No auto-setup
-  git-wt-add feature-new-feature --auto-set         # Force auto-setup  
+  git-wt-add feature-new-feature --auto-setup       # Force auto-setup  
   git-wt-add hotfix/login-bug main --no-auto-setup # Disable auto-setup
 
 Configuration priority (highest to lowest):
-  1. CLI flags (--auto-set/--no-auto-setup)
+  1. CLI flags (--auto-setup/--no-auto-setup)
   2. Config file (plugins/config/default.yaml: auto_setup)
   3. Default behavior (auto_setup: false)
 

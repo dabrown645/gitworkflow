@@ -267,11 +267,11 @@ test_git_wt_add_flags() {
     log_info "Testing git-wt-add CLI flags"
     
     # Test help flag
-    if "$PROJECT_DIR/bin/git-wt-add" --help | grep -q "\-\-auto-set"; then
-        log_success "git-wt-add help shows auto-set flag"
+    if "$PROJECT_DIR/bin/git-wt-add" --help | grep -q "\-\-auto-setup"; then
+        log_success "git-wt-add help shows auto-setup flag"
         TESTS_PASSED=$((TESTS_PASSED + 1))
     else
-        log_error "git-wt-add help missing auto-set flag"
+        log_error "git-wt-add help missing auto-setup flag"
         TESTS_FAILED=$((TESTS_FAILED + 1))
     fi
     TESTS_TOTAL=$((TESTS_TOTAL + 1))
