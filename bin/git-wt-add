@@ -1,20 +1,109 @@
 #!/usr/bin/env bash
 
 # git-wt-add - Add a new branch/worktree
-# Usage: git-wt-add <branch-name> [create-from-branch]
+# Usage: git-wt-add <branch-name> [create-from-branch] [options]
 
 set -e
 
+# Parse command line arguments
+parse_args() {
+  AUTO_SETUP=false
+  NO_AUTO_SETUP=false
+  BRANCH_NAME=""
+  FROM_BRANCH=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    --auto-setup)
+      AUTO_SETUP=true
+      shift
+      ;;
+    --no-auto-setup)
+      NO_AUTO_SETUP=true
+      shift
+      ;;
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    *)
+      if [[ -z "$BRANCH_NAME" ]]; then
+        BRANCH_NAME="$1"
+      elif [[ -z "$FROM_BRANCH" ]]; then
+        FROM_BRANCH="$1"
+      else
+        echo "Error: Too many arguments"
+        show_help
+        exit 1
+      fi
+      shift
+      ;;
+    esac
+  done
+}
+
+show_help() {
+  cat <<'EOF'
+Usage: git-wt-add <branch-name> [create-from-branch] [options]
+
+Arguments:
+  branch-name          Name of the branch/worktree to create
+  create-from-branch   Base branch to create from (optional)
+
+Options:
+  --auto-setup          Enable plugin auto-setup for this worktree
+  --no-auto-setup      Disable plugin auto-setup for this worktree
+  --help, -h           Show this help
+
+Examples:
+  git-wt-add feature-new-feature                    # No auto-setup
+  git-wt-add feature-new-feature --auto-setup       # Force auto-setup  
+  git-wt-add hotfix/login-bug main --no-auto-setup # Disable auto-setup
+
+Configuration priority (highest to lowest):
+  1. CLI flags (--auto-setup/--no-auto-setup)
+  2. Config file (plugins/config/default.yaml: auto_setup)
+  3. Default behavior (auto_setup: false)
+
+EOF
+}
+
+check_auto_setup_config() {
+  # Check config file for auto_setup setting
+  local config_file="${XDG_CONFIG_DIR:-$HOME/.config}/gitworkflow/plugins/config/default.yaml"
+
+  if [[ -f "$config_file" ]]; then
+    # Parse YAML for auto_setup value
+    local config_value
+    config_value=$(grep '^auto_setup:' "$config_file" 2>/dev/null | cut -d: -f2 | tr -d ' ')
+    if [[ "$config_value" == "true" ]]; then
+      return 0 # auto_setup is true in config
+    fi
+  fi
+  return 1 # auto_setup is false or not found
+}
+
+should_run_auto_setup() {
+  # CLI flags take precedence
+  if [[ "$AUTO_SETUP" == true ]]; then
+    return 0 # Force enable
+  elif [[ "$NO_AUTO_SETUP" == true ]]; then
+    return 1 # Force disable
+  else
+    # Check config file
+    check_auto_setup_config
+  fi
+}
+
 main() {
-  if (($# < 1)) || (($# > 2)); then
-    echo "Usage: git-wt-add <branch-name> [create-from-branch]"
-    echo "Example: git-wt-add feature-new-feature"
-    echo "Example: git-wt-add hotfix/login-bug main"
+  parse_args "$@"
+
+  if [[ -z "$BRANCH_NAME" ]]; then
+    echo "Error: Branch name is required"
+    show_help
     exit 1
   fi
 
-  BRANCH_NAME="${1}"
-  FROM_BRANCH="${2}"
   DIR_NAME=$(echo "${BRANCH_NAME}" | tr '/' '-')
 
   if ! read common_dir rest < <(git worktree list 2>/dev/null | grep bare | cut -f 1); then
@@ -31,7 +120,6 @@ main() {
 
   cd "${common_dir}" >/dev/null || exit
 
-  set -x
   if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
     # Branch exists locally
     git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
@@ -53,13 +141,11 @@ main() {
     fi
     echo "ℹ️  New branch created. Use 'git push -u origin ${BRANCH_NAME}' to set up tracking"
   fi
-  set +x
 
   popd
 
   # Auto-setup plugins if requested
-  auto_setup=false
-  if ${auto_setup}; then
+  if should_run_auto_setup; then
     echo "Running auto-setup for worktree..."
     if command -v plugin-manager >/dev/null 2>&1; then
       plugin-manager auto-setup "${DIR_NAME}"
