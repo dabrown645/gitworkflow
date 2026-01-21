@@ -1,23 +1,23 @@
-# 💥 BREAKING CHANGE 
+# 💥 BREAKING CHANGE:  
 
-# 🧹 CHORE 
+# 🧹 CHORE:  
 
-# 🔁 CI 
+# 🔁 CI:  
 
-# 🦗 DEBUG 
+# 🦗 DEBUG:  
 
-# 📦 DEPLOY 
+# 📦 DEPLOY:  
 
-# 📚 DOCS 
+# 📚 DOCS:  
 
-# ✨ FEAT 
+# ✨ FEAT:  
 
-# 🛠️ FIX 
+# 🛠️ FIX:  
 
-# 🚀 PERF 
+# 🚀 PERF:  
 
-# 🔨 REFACTOR 
+# 🔨 REFACTOR:  
 
-# 🎨 STYLE 
+# 🎨 STYLE:  
 
-# 🧪 TEST 
+# 🧪 TEST:  
