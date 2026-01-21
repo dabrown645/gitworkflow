@@ -22,12 +22,18 @@ main() {
 
   add_default_branch
 
+  # Get the default branch name for display
+  DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+  if [[ -z "${DEFAULT_BRANCH}" ]]; then
+    DEFAULT_BRANCH=$(git branch -r | grep -E 'origin/main|origin/master' | grep -v HEAD | head -n 1 | cut -f 2 -d '/')
+  fi
+
   echo "✅ Repository cloned successfully"
   echo "✅  worktree for default branch: ${DIR_NAME}"
   echo ""
   echo "Directory structure:"
   echo "$DIR_NAME/"
-  echo "├── $DEFAULT_BRANCH  # (current branch)"
+  echo "├── ${DEFAULT_BRANCH}  # (current branch)"
   echo "└── .git"
   echo ""
   echo "To add a new branch worktree:"
@@ -67,6 +73,24 @@ clone_repo() {
 add_default_branch() {
 
   local default_branch
+  
+  # Check if repository is empty (no remote branches)
+  if ! git branch -r | grep -q .; then
+    echo ""
+    echo "❌ Empty repository detected"
+    echo ""
+    echo "git-wt-clone is designed for existing repositories with commits."
+    echo "For new/empty repositories, use git-wt-init instead:"
+    echo ""
+    echo "  git-wt-init <project-name> <remote-url>"
+    echo ""
+    echo "Example:"
+    echo "  git-wt-init bash-lib git@github.com:dabrown645/bash-lib.git"
+    echo ""
+    echo "This will create the project structure and initial commit."
+    exit 1
+  fi
+  
   default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
   
   # If not set try for "main" or "master"

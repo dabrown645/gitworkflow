@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+# git-wt-init - Initialize a new project with worktree structure
+# Usage: git-wt-init <project-name> [remote-url]
+
+set -e
+
+# Detect if input looks like a Git URL
+is_git_url() {
+  local input="$1"
+  # Check for common Git URL patterns
+  [[ "$input" =~ ^(https?|git|ssh|file):// ]] ||
+  [[ "$input" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+:[^/]+/ ]] ||
+  [[ "$input" =~ \.git$ ]]
+}
+
+# Extract repository name from Git URL
+extract_repo_name() {
+  local url="$1"
+  local basename="${url##*/}"
+  echo "${basename%.git}"
+}
+
+main() {
+  if (($# < 1)) || (($# > 2)); then
+    echo "Usage: git-wt-init <project-name-or-url> [remote-url]"
+    echo "Example: git-wt-init my-new-project"
+    echo "Example: git-wt-init https://github.com/user/repo.git"
+    echo "Example: git-wt-init git@github.com:user/repo.git"
+    echo "Example: git-wt-init my-project https://github.com/user/different.git"
+    exit 1
+  fi
+
+  # Determine if first argument is URL or project name
+  if is_git_url "$1"; then
+    PROJECT_NAME=$(extract_repo_name "$1")
+    REMOTE_URL="$1"
+  else
+    PROJECT_NAME="$1"
+    REMOTE_URL="$2"
+  fi
+
+  if [[ -d "${PROJECT_NAME}" ]]; then
+    echo "Error: Directory ${PROJECT_NAME} already exists"
+    exit 1
+  fi
+
+  init_project "${PROJECT_NAME}" "${REMOTE_URL}"
+
+  # Get the default branch name for display
+  local default_branch=$(git config --global init.defaultBranch 2>/dev/null || echo "main")
+
+  echo "✅ Project initialized successfully"
+  echo "✅ Worktree for ${default_branch} branch: ${PROJECT_NAME}/${default_branch}"
+  echo ""
+  echo "Directory structure:"
+  echo "$PROJECT_NAME/"
+  echo "├── ${default_branch}     # ${default_branch} branch worktree (current)"
+  echo "│   └── .git"
+  echo "└── .git                 # Bare repository"
+  echo ""
+  echo "Next steps:"
+  if [[ -n "${REMOTE_URL}" ]]; then
+    echo "  cd $PROJECT_NAME/${default_branch} && git push -u origin ${default_branch}"
+  else
+    echo "  cd $PROJECT_NAME/${default_branch} && add your files"
+    echo "  git add . && git commit -m 'Initial commit'"
+    echo "  # Then add remote and push:"
+    echo "  git remote add origin <your-remote-url>"
+    echo "  git push -u origin ${default_branch}"
+  fi
+  echo ""
+  echo "To add a new branch worktree:"
+  echo "  cd $PROJECT_NAME && git-wt-add <type>/<branch-name>"
+}
+
+init_project() {
+  local project="$1"
+  local remote="$2"
+  local original_dir
+  local default_branch
+
+  original_dir="$(pwd)"
+  echo "Initializing new project with worktree structure..."
+
+  # Get the default branch name
+  if [[ -n "${remote}" ]]; then
+    # Try to detect default branch from remote first
+    default_branch=$(git ls-remote --symref "${remote}" HEAD 2>/dev/null | 
+                      head -1 | awk '{print $2}' | sed 's#refs/heads/##')
+    
+    # If detection failed, fall back to common branch names
+    if [[ -z "${default_branch}" || "${default_branch}" == "HEAD" ]]; then
+      for candidate in main master develop; do
+        if git ls-remote --exit-code --heads "${remote}" "${candidate}" >/dev/null 2>&1; then
+          default_branch="${candidate}"
+          break
+        fi
+      done
+    fi
+    
+    # Ultimate fallback to user config or "main"
+    if [[ -z "${default_branch}" || "${default_branch}" == "HEAD" ]]; then
+      default_branch=$(git config --global init.defaultBranch 2>/dev/null || echo "main")
+    fi
+    
+    echo "✅ Detected default branch: ${default_branch}"
+  else
+    # No remote URL - use user's Git config or default to "main"
+    default_branch=$(git config --global init.defaultBranch 2>/dev/null || echo "main")
+  fi
+
+  # Create main directory
+  mkdir -p "$project"
+  cd "$project"
+
+  # Initialize bare repository in .git directory
+  git init --bare .git
+
+  # Configure remote if provided
+  if [[ -n "${remote}" ]]; then
+    git config remote.origin.url "${remote}"
+    git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+    echo "✅ Remote configured: ${remote}"
+  fi
+
+  # Create worktree for the default branch
+  git worktree add -b "${default_branch}" "${default_branch}"
+
+  # Set up empty initial commit if remote is provided (for blank repos)
+  if [[ -n "${remote}" ]]; then
+    cd "${default_branch}"
+    
+    # Create an empty commit with empty message
+    git commit --allow-empty --allow-empty-message --message ""
+    echo "✅ Empty initial commit created"
+  fi
+}
+
+# This block will exit if file was sourced
+if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+# If not sourced run main
+main "${@}"
