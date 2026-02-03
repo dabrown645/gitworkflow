@@ -65,7 +65,7 @@ setup_test_env() {
     git add README.md
     git commit -m "Initial commit"
     git remote add upstream "$UPSTREAM_REPO"
-    git push origin main
+    # Note: Don't push to origin since it doesn't exist yet
     cd ..
 }
 

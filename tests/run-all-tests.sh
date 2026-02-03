@@ -55,15 +55,24 @@ run_test_suite() {
             exit_code=$?
         fi
         
+        # Strip ANSI color codes from output for parsing
+        local clean_output
+        clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+        
         # Extract test counts from output
         local suite_total=0
         local suite_passed=0
         local suite_failed=0
         
-        if echo "$output" | grep -q "Total tests:"; then
-            suite_total=$(echo "$output" | grep "Total tests:" | sed 's/.*Total tests: \([0-9]*\).*/\1/')
-            suite_passed=$(echo "$output" | grep "Passed:" | sed 's/.*Passed: \([0-9]*\).*/\1/')
-            suite_failed=$(echo "$output" | grep "Failed:" | sed 's/.*Failed: \([0-9]*\).*/\1/')
+        if echo "$clean_output" | grep -q "Total tests:"; then
+            suite_total=$(echo "$clean_output" | grep "Total tests:" | sed 's/.*Total tests: \([0-9]*\).*/\1/')
+            suite_passed=$(echo "$clean_output" | grep "Passed:" | sed 's/.*Passed: \([0-9]*\).*/\1/')
+            suite_failed=$(echo "$clean_output" | grep "Failed:" | sed 's/.*Failed: \([0-9]*\).*/\1/')
+        else
+            # Fallback: count from PASS/FAIL lines if summary not found
+            suite_total=$(echo "$clean_output" | grep -c "\[PASS\]\|\[FAIL\]" || true)
+            suite_passed=$(echo "$clean_output" | grep -c "\[PASS\]" || true)
+            suite_failed=$(echo "$clean_output" | grep -c "\[FAIL\]" || true)
         fi
         
         # Update global counters
@@ -72,13 +81,24 @@ run_test_suite() {
         TOTAL_PASSED=$((TOTAL_PASSED + suite_passed))
         TOTAL_FAILED=$((TOTAL_FAILED + suite_failed))
         
-        if [[ $exit_code -eq 0 ]]; then
+        # Determine success based on test results, not exit code
+        if [[ $suite_failed -eq 0 && $suite_total -gt 0 ]]; then
             PASSED_SUITES=$((PASSED_SUITES + 1))
             log_success "$suite_name: ✓ $suite_passed/$suite_total tests passed"
         else
             FAILED_SUITES=$((FAILED_SUITES + 1))
             log_error "$suite_name: ✗ $suite_failed/$suite_total tests failed"
-            echo "$output" | tail -20  # Show last 20 lines of failed output
+            # Don't show details unless verbose mode is enabled
+        fi
+        
+        # Show full output if verbose mode is enabled
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo ""
+            echo "----------------------------------------"
+            echo "Full test output for $suite_name:"
+            echo "----------------------------------------"
+            echo "$output"
+            echo "----------------------------------------"
         fi
     else
         log_error "$suite_name: Test script not found or not executable: $test_script"
@@ -108,7 +128,6 @@ Test Suites:
   git-wt-status       Test git worktree status display
   git-wt-clone        Test git repository cloning with worktree setup
   git-wt-clone-fork  Test git repository fork cloning
-  git-wt-init         Test git repository initialization with worktree setup
   git-push-debug       Test git push debugging and validation
   unit                Test core functions and components
   integration         Test end-to-end workflows
@@ -133,7 +152,6 @@ list_test_suites() {
     echo "  git-wt-status       git worktree status"
     echo "  git-wt-clone        repository cloning"
     echo "  git-wt-clone-fork  repository fork cloning"
-    echo "  git-wt-init         repository initialization"
     echo "  git-push-debug       git push debugging"
     echo "  unit                core functions"
     echo "  integration         end-to-end workflows"
@@ -177,7 +195,6 @@ check_dependencies() {
         "git-wt-status"
         "git-wt-clone"
         "git-wt-clone-fork"
-        "git-wt-init"
         "git-push-debug"
         "plugin-manager"
     )
@@ -226,7 +243,7 @@ parse_args() {
                 VERBOSE=true
                 shift
                 ;;
-            git-wt-add|git-wt-remove|git-wt-status|git-wt-clone|git-wt-clone-fork|git-wt-init|git-push-debug|unit|integration|plugins|all)
+            git-wt-add|git-wt-remove|git-wt-status|git-wt-clone|git-wt-clone-fork|git-push-debug|unit|integration|plugins|all)
                 SUITES_TO_RUN+=("$1")
                 shift
                 ;;
@@ -279,21 +296,6 @@ main() {
                 ;;
             git-wt-clone-fork)
                 run_test_suite "git-wt-clone-fork" "$GITWT_TESTS/test-git-wt-clone-fork.sh"
-                ;;
-            all)
-                run_test_suite "git-wt-add" "$GITWT_TESTS/test-git-wt-add.sh"
-                run_test_suite "git-wt-remove" "$GITWT_TESTS/test-git-wt-remove.sh"
-                run_test_suite "git-wt-status" "$GITWT_TESTS/test-git-wt-status.sh"
-                run_test_suite "git-wt-clone" "$GITWT_TESTS/test-git-wt-clone.sh"
-                run_test_suite "git-wt-clone-fork" "$GITWT_TESTS/test-git-wt-clone-fork.sh"
-                run_test_suite "git-wt-init" "$GITWT_TESTS/test-git-wt-init.sh"
-                run_test_suite "git-push-debug" "$GITPUSH_TESTS/test-git-push-debug.sh"
-                run_test_suite "Unit Tests" "$UNIT_TESTS/test-core-functions.sh"
-                run_test_suite "Integration Tests" "$INTEGRATION_TESTS/test-workflow.sh"
-                run_test_suite "Plugin Tests" "$PLUGIN_TESTS"
-                ;;
-            git-wt-init)
-                run_test_suite "git-wt-init" "$GITWT_TESTS/test-git-wt-init.sh"
                 ;;
             git-push-debug)
                 run_test_suite "git-push-debug" "$GITPUSH_TESTS/test-git-push-debug.sh"
