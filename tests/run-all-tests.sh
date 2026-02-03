@@ -108,6 +108,7 @@ Test Suites:
   git-wt-status       Test git worktree status display
   git-wt-clone        Test git repository cloning with worktree setup
   git-wt-clone-fork  Test git repository fork cloning
+  git-wt-init         Test git repository initialization with worktree setup
   git-push-debug       Test git push debugging and validation
   unit                Test core functions and components
   integration         Test end-to-end workflows
@@ -132,6 +133,7 @@ list_test_suites() {
     echo "  git-wt-status       git worktree status"
     echo "  git-wt-clone        repository cloning"
     echo "  git-wt-clone-fork  repository fork cloning"
+    echo "  git-wt-init         repository initialization"
     echo "  git-push-debug       git push debugging"
     echo "  unit                core functions"
     echo "  integration         end-to-end workflows"
@@ -175,6 +177,7 @@ check_dependencies() {
         "git-wt-status"
         "git-wt-clone"
         "git-wt-clone-fork"
+        "git-wt-init"
         "git-push-debug"
         "plugin-manager"
     )
@@ -223,7 +226,7 @@ parse_args() {
                 VERBOSE=true
                 shift
                 ;;
-            git-wt-add|git-wt-remove|git-wt-status|git-wt-clone|git-wt-clone-fork|git-push-debug|unit|integration|plugins|all)
+            git-wt-add|git-wt-remove|git-wt-status|git-wt-clone|git-wt-clone-fork|git-wt-init|git-push-debug|unit|integration|plugins|all)
                 SUITES_TO_RUN+=("$1")
                 shift
                 ;;
@@ -276,6 +279,21 @@ main() {
                 ;;
             git-wt-clone-fork)
                 run_test_suite "git-wt-clone-fork" "$GITWT_TESTS/test-git-wt-clone-fork.sh"
+                ;;
+            all)
+                run_test_suite "git-wt-add" "$GITWT_TESTS/test-git-wt-add.sh"
+                run_test_suite "git-wt-remove" "$GITWT_TESTS/test-git-wt-remove.sh"
+                run_test_suite "git-wt-status" "$GITWT_TESTS/test-git-wt-status.sh"
+                run_test_suite "git-wt-clone" "$GITWT_TESTS/test-git-wt-clone.sh"
+                run_test_suite "git-wt-clone-fork" "$GITWT_TESTS/test-git-wt-clone-fork.sh"
+                run_test_suite "git-wt-init" "$GITWT_TESTS/test-git-wt-init.sh"
+                run_test_suite "git-push-debug" "$GITPUSH_TESTS/test-git-push-debug.sh"
+                run_test_suite "Unit Tests" "$UNIT_TESTS/test-core-functions.sh"
+                run_test_suite "Integration Tests" "$INTEGRATION_TESTS/test-workflow.sh"
+                run_test_suite "Plugin Tests" "$PLUGIN_TESTS"
+                ;;
+            git-wt-init)
+                run_test_suite "git-wt-init" "$GITWT_TESTS/test-git-wt-init.sh"
                 ;;
             git-push-debug)
                 run_test_suite "git-push-debug" "$GITPUSH_TESTS/test-git-push-debug.sh"
