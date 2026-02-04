@@ -28,7 +28,7 @@ main() {
         exit 0
       fi
     else
-      error_msg "Worktree ${WT_NAME} has uncommited changes:"
+      error_msg "Worktree ${WT_NAME} has uncommitted changes:"
       echo "${STATUS}"
       echo ""
       echo "Please commit or stash your changes first or use --force"
@@ -82,7 +82,7 @@ parse_args() {
 show_help() {
   echo "Usage: git-wt-remove <worktree-name> [--force|-f] [--help|-h]"
   echo ""
-  echo "Description: git-wt-remove removes a wortree but NOT the associtated branch"
+  echo "Description: git-wt-remove removes a worktree but NOT the associated branch"
   echo ""
   echo "Options:"
   echo "  --force|-f      Remove worktree even if it has uncommitted changes"
