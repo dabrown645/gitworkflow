@@ -1,0 +1,307 @@
+#!/usr/bin/bash/env bash
+
+BRANCH_TOPLEVEL=$(git rev-parse --show-toplevel)
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/git-wt-remove"
+
+set_up() {
+  ORIG_DIR="${PWD}"
+  TMPDIR="$(mktemp -d)"
+  cd "${TMPDIR}" || fail "Could not cd into ${TMPDIR}"
+}
+
+tear_down() {
+  cd "${ORIG_DIR}" || exit 1
+  rm -rf "${TMPDIR}"
+}
+
+create_test_repo() {
+  REPO_DIR="test_repo"
+
+  mkdir "${REPO_DIR}"
+  pushd "${REPO_DIR}" || fail "Could not cd into test_repo directory"
+
+  git init --bare .git
+  git worktree add main
+  git -C main config user.name "John Doe"
+  git -C main config user.email "JohnDoe@example.com"
+  echo "# Test Repo" >main/README.md
+  git -C main add README.md
+  git -C main commit -m "Initial Commit"
+
+  popd || fail "Could not return from test_repo directory"
+}
+
+create_test_repo_worktree() {
+  local branch_name="${1}"
+  local branch_parent="${2}"
+  local branch_dir="${branch_name//\//-}"
+
+  if [[ -z "${branch_parent}" ]]; then
+    git worktree add -b "${branch_name}" "${branch_dir}"
+  else
+    git worktree add -b "${branch_name}" "${branch_dir}" "${branch_parent}"
+  fi
+}
+
+test_cmd_exist() {
+  assert_file_exists "${CMD_TESTING}"
+}
+
+test_no_arguments_flags() {
+  local output
+  output=$("${CMD_TESTING}" 2>&1 || true)
+  assert_contains "You must supply" "${output}"
+
+  "${CMD_TESTING}" >/dev/null 2>&1
+  assert_exit_code 1
+}
+
+test_help_flag() {
+  local output
+  output=$("${CMD_TESTING}" --help)
+  assert_contains "Usage:" "${output}"
+  assert_contains "Description:" "${output}"
+  assert_contains "Options:" "${output}"
+  assert_contains "Examples:" "${output}"
+  assert_exit_code 0
+
+  output=$("${CMD_TESTING}" -h)
+  assert_contains "Usage:" "${output}"
+  assert_contains "Description:" "${output}"
+  assert_contains "Options:" "${output}"
+  assert_contains "Examples:" "${output}"
+  assert_exit_code 0
+}
+
+test_handle_unknown_flages() {
+  local output
+  output=$("${CMD_TESTING}" --unknown 2>&1 || true)
+  assert_contains "Usage:" "${output}"
+
+  "${CMD_TESTING}" --unknown >/dev/null 2>&1
+  assert_exit_code 1
+
+  output=$("${CMD_TESTING}" -u 2>&1 || true)
+  assert_contains "Usage:" "${output}"
+
+  "${CMD_TESTING}" -u >/dev/null 2>&1
+  assert_exit_code 1
+}
+
+test_arg_count_in_range() {
+  "${CMD_TESTING}" >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" a b c >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" --force >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" a b --force >/dev/null 2>&1
+  assert_exit_code 1
+
+}
+
+test_delete_clean_worktree() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$(git worktree list)
+  assert_contains "bare" "${output}"
+  assert_contains "main" "${output}"
+
+  create_test_repo_worktree "test/clean-worktree"
+  assert_directory_exists "test-clean-worktree"
+
+  output=$("$CMD_TESTING" test-clean-worktree 2>&1)
+  assert_contains "Worktree removed successfully" "${output}"
+  assert_directory_not_exists "test-clean-worktree"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_delete_missing_worktree() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$("$CMD_TESTING" test-missing-worktree 2>&1)
+  assert_exit_code 1
+  assert_contains "Error: Worktree directory" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_delete_dirty_worktree_short() {
+  local output
+  local wt_name=test-dirty-worktree-short
+  local force="-f"
+
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$(git worktree list)
+  assert_contains "bare" "${output}"
+  assert_contains "main" "${output}"
+
+  create_test_repo_worktree "${wt_name}"
+  touch "${wt_name}/dirty.txt"
+  git -C "${wt_name}" add .
+  assert_directory_exists "${wt_name}"
+  assert_file_exists "${wt_name}/dirty.txt"
+
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "uncommitted changes" "${output}"
+
+  "$CMD_TESTING" "${wt_name}" >/dev/null 2>&1
+  assert_exit_code 1
+
+  output=$(echo "N" | "$CMD_TESTING" "${wt_name}" "${force}" 2>&1 || true)
+  assert_contains "Operation cancelled" "${output}"
+
+  echo "N" | "$CMD_TESTING" "${wt_name}" "${force}" >/dev/null 2>&1
+  assert_exit_code 0
+
+  output=$(echo "Y" | "$CMD_TESTING" "${wt_name}" "${force}" 2>&1 || true)
+  assert_contains "Worktree removed successfully" "${output}"
+
+  echo "Y" | "$CMD_TESTING" "${wt_name}" "${force}" >/dev/null 2>&1
+  # assert_exit_code 0
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_delete_dirty_worktree_long() {
+  local output
+  local wt_name=test-dirty-worktree-long
+  local force="--force"
+
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$(git worktree list)
+  assert_contains "bare" "${output}"
+  assert_contains "main" "${output}"
+
+  create_test_repo_worktree "${wt_name}"
+  touch "${wt_name}/dirty.txt"
+  git -C "${wt_name}" add .
+  assert_directory_exists "${wt_name}"
+  assert_file_exists "${wt_name}/dirty.txt"
+
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "uncommitted changes" "${output}"
+
+  "$CMD_TESTING" "${wt_name}" >/dev/null 2>&1
+  assert_exit_code 1
+
+  output=$(echo "N" | "$CMD_TESTING" "${wt_name}" "${force}" 2>&1 || true)
+  assert_contains "Operation cancelled" "${output}"
+
+  echo "N" | "$CMD_TESTING" "${wt_name}" "${force}" >/dev/null 2>&1
+  assert_exit_code 0
+
+  output=$(echo "Y" | "$CMD_TESTING" "${wt_name}" "${force}" 2>&1 || true)
+  assert_contains "Worktree removed successfully" "${output}"
+
+  echo "Y" | "$CMD_TESTING" "${wt_name}" "${force}" >/dev/null 2>&1
+  # assert_exit_code 0
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_delete_current_dectroy() {
+  local output
+  local wt_name=test_current_directory
+
+  create_test_repo
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  create_test_repo_worktree "${wt_name}"
+  assert_directory_exists "${wt_name}"
+
+  pushd "${wt_name}" || fail "Failed to cd into ${wt_name}"
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "Can't delete worktree <${wt_name}> while inside it" "${output}"
+  popd || fail "Failed to return from ${wt_name}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_not_git_repository() {
+  local output
+  local wt_name=test_inside_directory
+
+  create_test_repo
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  mkdir "${wt_name}"
+  pushd "${wt_name}" || fail "Failed to cd into ${wt_name}"
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "Can't delete worktree <${wt_name}> while inside it" "${output}"
+  popd || fail "Failed to return from ${wt_name}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_special_characters_spaces() {
+  local output
+  local wt_name="worktree with spaces"
+  local branch="spaces"
+
+  create_test_repo
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  git worktree add -b "feature/${branch}" "${wt_name}"
+  assert_directory_exists "${wt_name}"
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "Worktree removed successfully" "${output}"
+  assert_directory_not_exists "${wt_name}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_special_characters_unicode() {
+  local output
+  local wt_name="worktree-with-unicode-测试"
+  local branch="unicode"
+
+  # export LC_ALL=C
+  # export LANG=C
+  echo "=== DEBUG: Locale/Environment ===" >&2
+  echo "LANG: $LANG" >&2
+  echo "LC_ALL: $LC_ALL" >&2
+  echo "Locale: $(locale charmap)" >&2
+  echo "File encoding: $(locale charset)" >&2
+
+  create_test_repo
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  git worktree add -b "feature/${branch}" "${wt_name}"
+  assert_directory_exists "${wt_name}"
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "Worktree removed successfully" "${output}"
+  assert_directory_not_exists "${wt_name}"
+}
+
+test_special_characters_slashes() {
+  local output
+  local wt_name="worktree/with/slashes"
+  local branch="slashes"
+
+  create_test_repo
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  git worktree add -b "feature/${branch}" "${wt_name}"
+  assert_directory_exists "${wt_name}"
+  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
+  assert_contains "Worktree removed successfully" "${output}"
+  assert_directory_not_exists "${wt_name}"
+
+}
