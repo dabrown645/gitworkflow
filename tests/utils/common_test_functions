@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set_up_before_script() {
+  ORIG_DIR="${PWD}"
+  TMPDIR="$(mktemp -d)"
+  cd "${TMPDIR}" || fail "Could not cd into ${TMPDIR}"
+
+  REMOTE_REPO="remote_repo"
+  export REMOTE_REPO_LOC="${TMPDIR}/${REMOTE_REPO}"
+  mkdir -p "${REMOTE_REPO}"
+
+  pushd "${REMOTE_REPO}" || fail "Could not cd to ${REMOTE_REPO}"
+  git init --bare .
+  popd || fail "Could not return from  ${REMOTE_REPO}"
+
+  mkdir -p "temp_init"
+  pushd "temp_init" || fail "Could not cd to temp_init"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+
+  echo "# Test Repository" >README.md
+  echo "This is a test repository for local remote testing." >>README.md
+  mkdir -p src
+  echo 'print("Hello World!")' >src/hello.py
+  git add .
+  git commit -m "Initial commit for main"
+
+  git checkout -b develop
+  echo "# Development branch" >README.md
+  git add README.md
+  git commit -m "Add development branch"
+
+  git checkout main
+
+  git remote add origin "${REMOTE_REPO_LOC}"
+  git push -u origin main
+  git push -u origin develop
+  popd || fail "Could not return from temp_init"
+  rm -rf temp_init
+}
+
+tear_down_after_script() {
+  cd "${ORIG_DIR}" || fail "Could not cd back to ${ORIG_DIR}"
+  rm -rf "${TMPDIR}"
+}
+
+set_up() {
+  TEST_DIR="test_dir"
+  mkdir -p "${TEST_DIR}"
+  cd "${TEST_DIR}" || fail "Could not cd to ${TEST_DIR}"
+
+  :
+}
+
+tear_down() {
+  cd "${TMPDIR}" || fail "Could not cd back to ${TMPDIR}"
+  :
+}
+
+# Common functions
+create_worktree_clone() {
+  local dirname="${REMOTE_REPO_LOC##*/}"
+  export DIRNAME="${dirname%.*}"
+
+  mkdir -p "${DIRNAME}" || fail "Could not create ${DIRNAME}"
+
+  pushd "${DIRNAME}" || fail "Could not create ${DIRNAME}"
+
+  git clone --bare "${REMOTE_REPO_LOC}" .git
+  git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  git fetch --all --prune
+
+  popd || fail "Could not return from ${DIRNAME}"
+}
+
+# # Tests for commont_test_functions
+# test_setup_before() {
+#   local output
+#   assert_directory_exists "${REMOTE_REPO_LOC}"
+#   assert_directory_not_exists "temp_init"
+#
+#   output=$(git -C ${REMOTE_REPO_LOC} branch)
+#   assert_contains "main" "${output}"
+#   assert_contains "develop" "${output}"
+#
+# }
+#
+# test_setup() {
+#   assert_directory_exists "../${TEST_DIR}"
+# }
+#
+# test_create_worktree_clone() {
+#   local output
+#   create_worktree_clone
+#   # assert_directory_exists "${REMOTE_REPO_LOC}"
+#   assert_directory_exists "../${TEST_DIR}"
+#   assert_directory_exists "../${TEST_DIR}/${DIRNAME}"
+#   assert_directory_exists "${DIRNAME}"
+#
+#   output=$(git -C "${DIRNAME}" branch)
+#   assert_contains "main" "${output}"
+#   echo "hello world"
+#   bashunit::log "Log Hello World"
+# }
+#
+# test_bootstrap() {
+#   assert_contains "gitworkflow" "${BRANCH_TOPLEVEL}"
+# }

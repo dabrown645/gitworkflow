@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
