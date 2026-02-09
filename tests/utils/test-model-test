@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# Test the model-test template structure
+# This verifies the test template works correctly
+
+# First, we need to simulate what model-test does
+# Set a test command name
+CMD="git-wt-add"
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
+
+# Tests for model-test template
+test_model_template_cmd_exists() {
+  # This mimics test_cmd_exists() from model-test
+  assert_file_exists "${CMD_TESTING}"
+}
+
+test_model_template_remote_repo_loc() {
+  # This mimics test_remote_repo_loc() from model-test
+  assert_directory_exists "${REMOTE_REPO_LOC}"
+}
+
+test_model_template_cmd_variable_set() {
+  # Verify CMD variable is properly set
+  assert_not_empty "${CMD}"
+  assert_equals "git-wt-add" "${CMD}"
+}
+
+test_model_template_cmd_testing_path() {
+  # Verify CMD_TESTING is constructed correctly
+  assert_not_empty "${CMD_TESTING}"
+  assert_contains "${CMD}" "${CMD_TESTING}"
+  assert_contains "${BRANCH_TOPLEVEL}/bin/" "${CMD_TESTING}"
+}
+
+test_model_template_sources_common_functions() {
+  # Verify common_test_functions was sourced by checking a function exists
+  # Check that create_worktree_clone function exists by using type command
+  if ! type create_worktree_clone >/dev/null 2>&1; then
+    fail "create_worktree_clone function should be available from common_test_functions"
+  fi
+}

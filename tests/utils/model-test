@@ -1,3 +1,17 @@
 #!/usr/bin/env bash
+CMD=<command>
 
 source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
+
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
+}
+test_remote_repo_loc() {
+  assert_directory_exists "${REMOTE_REPO_LOC}"
+}
+
+# Above here comes from testing template tests/utils/model-test
+# You will need to supply the command name being tested
+#^^^^^^^^^^^^^^^^
