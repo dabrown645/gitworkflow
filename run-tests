@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+test="${1}"
+watch_directory="${2%/*}"
+watch_file=${2##*/}
+
+lib/bashunit "${test}"
+
+inotifywait -m -e close_write,moved_to,delete_self --format '%e %f' "${watch_directory}" |
+  while read event filename; do
+    if [[ "$filename" == "${watch_file}" ]]; then
+      echo "File changed: $filename"
+      # Run your command here
+      lib/bashunit "${@}"
+    fi
+  done
