@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+CMD=plugin-manager
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
+
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
+}
+
+test_plugin_manager_help() {
+  local output
+  output=$(${CMD_TESTING} help)
+  assert_contains "Plugin Manager" "${output}"
+  assert_contains "Usage:" "${output}"
+  assert_contains "list-available" "${output}"
+  assert_contains "enable" "${output}"
+  assert_contains "disable" "${output}"
+  assert_contains "auto-setup" "${output}"
+  assert_exit_code 0
+  
+  output=$(${CMD_TESTING} --help)
+  assert_contains "Plugin Manager" "${output}"
+}
+
+test_plugin_manager_list_available() {
+  local output
+  
+  output=$(${CMD_TESTING} list-available 2>&1)
+  assert_contains "Available plugins:" "${output}"
+  # Check for actual plugins that exist
+  assert_contains "python" "${output}"
+  assert_contains "javascript" "${output}"
+  assert_contains "rust" "${output}"
+}
+
+test_plugin_manager_list_enabled_empty() {
+  local output
+  
+  # Clean up any previously enabled plugins first
+  rm -rf "${BRANCH_TOPLEVEL}/plugins/enabled"/* 2>/dev/null || true
+  
+  output=$(${CMD_TESTING} list-enabled 2>&1)
+  assert_contains "Enabled plugins:" "${output}"
+}
+
+test_plugin_manager_enable_plugin() {
+  local output
+  local plugin_name="python"
+  
+  # Clean up first
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/${plugin_name}.sh" 2>/dev/null || true
+  
+  output=$(${CMD_TESTING} enable "${plugin_name}" 2>&1)
+  assert_contains "Enabled plugin: ${plugin_name}" "${output}"
+  assert_file_exists "${BRANCH_TOPLEVEL}/plugins/enabled/${plugin_name}.sh"
+  
+  # Cleanup
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/${plugin_name}.sh"
+}
+
+test_plugin_manager_enable_nonexistent_plugin() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} enable nonexistent 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "not found" "${output}"
+}
+
+test_plugin_manager_disable_plugin() {
+  local output
+  local plugin_name="javascript"
+  
+  # First enable the plugin
+  ${CMD_TESTING} enable "${plugin_name}" >/dev/null 2>&1
+  
+  # Then disable it
+  output=$(${CMD_TESTING} disable "${plugin_name}" 2>&1)
+  assert_contains "Disabled plugin: ${plugin_name}" "${output}"
+  assert_file_not_exists "${BRANCH_TOPLEVEL}/plugins/enabled/${plugin_name}.sh"
+}
+
+test_plugin_manager_disable_non_enabled_plugin() {
+  local output
+  local exit_code=0
+  
+  # Make sure plugin is not enabled
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/rust.sh" 2>/dev/null || true
+  
+  output=$(${CMD_TESTING} disable rust 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "not enabled" "${output}"
+}
+
+test_plugin_manager_enable_already_enabled() {
+  local output
+  local plugin_name="python"
+  
+  # Enable twice
+  ${CMD_TESTING} enable "${plugin_name}" >/dev/null 2>&1
+  output=$(${CMD_TESTING} enable "${plugin_name}" 2>&1)
+  
+  assert_contains "already enabled" "${output}"
+  
+  # Cleanup
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/${plugin_name}.sh"
+}
+
+test_plugin_manager_auto_setup_no_worktree() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} auto-setup /nonexistent/path 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "not found" "${output}"
+}
+
+test_plugin_manager_auto_setup_with_worktree() {
+  local worktree_dir="${TMPDIR}/test_pm_worktree_$$"
+  
+  mkdir -p "${worktree_dir}"
+  # Create a file that python plugin detects
+  touch "${worktree_dir}/requirements.txt"
+  
+  # Enable python plugin
+  ${CMD_TESTING} enable python >/dev/null 2>&1 || true
+  
+  local output
+  output=$(${CMD_TESTING} auto-setup "${worktree_dir}" 2>&1)
+  
+  assert_contains "Auto-setting up plugins" "${output}"
+  
+  # Cleanup
+  rm -rf "${worktree_dir}"
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/python.sh"
+}
+
+test_plugin_manager_setup_specific_plugin() {
+  local worktree_dir="${TMPDIR}/test_pm_worktree2_$$"
+  
+  mkdir -p "${worktree_dir}"
+  # Create a file that python plugin detects
+  touch "${worktree_dir}/requirements.txt"
+  
+  # Enable python plugin
+  ${CMD_TESTING} enable python >/dev/null 2>&1 || true
+  
+  local output
+  output=$(${CMD_TESTING} setup python "${worktree_dir}" 2>&1)
+  
+  assert_contains "python" "${output}"
+  
+  # Cleanup
+  rm -rf "${worktree_dir}"
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/python.sh"
+}
+
+test_plugin_manager_setup_not_enabled() {
+  local output
+  local exit_code=0
+  
+  # Make sure rust is not enabled
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/rust.sh" 2>/dev/null || true
+  
+  output=$(${CMD_TESTING} setup rust /tmp 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "not enabled" "${output}"
+}
+
+test_plugin_manager_cleanup_worktree() {
+  local worktree_dir="${TMPDIR}/test_pm_worktree3_$$"
+  
+  mkdir -p "${worktree_dir}"
+  touch "${worktree_dir}/requirements.txt"
+  mkdir -p "${worktree_dir}/venv"
+  
+  # Enable python plugin
+  ${CMD_TESTING} enable python >/dev/null 2>&1 || true
+  
+  local output
+  output=$(${CMD_TESTING} cleanup "${worktree_dir}" 2>&1)
+  
+  assert_contains "Cleaning up plugins" "${output}"
+  
+  # Cleanup
+  rm -rf "${worktree_dir}"
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/python.sh"
+}
+
+test_plugin_manager_cleanup_nonexistent_worktree() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} cleanup /nonexistent/path 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "not found" "${output}"
+}
+
+test_plugin_manager_list_status() {
+  local worktree_dir="${TMPDIR}/test_pm_worktree4_$$"
+  
+  mkdir -p "${worktree_dir}"
+  touch "${worktree_dir}/requirements.txt"
+  
+  # Enable python plugin
+  ${CMD_TESTING} enable python >/dev/null 2>&1 || true
+  
+  local output
+  output=$(${CMD_TESTING} list-status "${worktree_dir}" 2>&1)
+  
+  assert_contains "Python" "${output}"
+  
+  # Cleanup
+  rm -rf "${worktree_dir}"
+  rm -f "${BRANCH_TOPLEVEL}/plugins/enabled/python.sh"
+}
+
+test_plugin_manager_invalid_command() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} invalidcommand 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "Unknown command" "${output}"
+}
+
+test_plugin_manager_missing_args_enable() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} enable 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "required" "${output}"
+}
+
+test_plugin_manager_missing_args_disable() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} disable 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "required" "${output}"
+}
+
+test_plugin_manager_missing_args_auto_setup() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} auto-setup 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "required" "${output}"
+}
+
+test_plugin_manager_missing_args_setup() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} setup 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "required" "${output}"
+}
+
+test_plugin_manager_missing_args_cleanup() {
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} cleanup 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "required" "${output}"
+}

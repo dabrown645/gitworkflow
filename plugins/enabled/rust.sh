@@ -1,1 +1,0 @@
-/home/dabrown/Code/gitworkflow/feature-autosetup-plugins/plugins/available/rust.sh

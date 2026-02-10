@@ -54,13 +54,11 @@ set_up() {
   TEST_DIR="test_dir"
   mkdir -p "${TEST_DIR}"
   cd "${TEST_DIR}" || fail "Could not cd to ${TEST_DIR}"
-
-  :
 }
 
 tear_down() {
   cd "${TMPDIR}" || fail "Could not cd back to ${TMPDIR}"
-  :
+  rm -rf "${TEST_DIR}"
 }
 
 # Common functions
