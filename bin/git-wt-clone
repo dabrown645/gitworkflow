@@ -3,22 +3,12 @@
 # git-wt-clone - Clone a repository and set up worktree structure
 # Usage: git-wt-clone <repo-url> [directory-name]
 
-set -e
-
 main() {
-  if (($# < 1)) || (($# > 2)); then
-    echo "Usage: git-wt-clone <repo-url> [directory-name]"
-    echo "Example: git-wt-clone https://github.com/user/repo.git my_project"
-    exit 1
-  fi
-
-  REPO_URL="$1"
-  BASENAME="${REPO_URL##*/}"
-  DIR_NAME="${2:-${BASENAME%.*}}" # Exatract dir_name from url if not provided
+  parse_args "${@}"
 
   clone_repo "${REPO_URL}" "${DIR_NAME}"
 
-  cd "${DIR_NAME}"
+  safe_run "Failed to change to ${DIR_NAME}" pushd "${DIR_NAME}"
 
   add_default_branch
 
@@ -28,19 +18,79 @@ main() {
     DEFAULT_BRANCH=$(git branch -r | grep -E 'origin/main|origin/master' | grep -v HEAD | head -n 1 | cut -f 2 -d '/')
   fi
 
-  echo "✅ Repository cloned successfully"
-  echo "✅  worktree for default branch: ${DIR_NAME}"
-  echo ""
-  echo "Directory structure:"
-  echo "$DIR_NAME/"
-  echo "├── ${DEFAULT_BRANCH}  # (current branch)"
-  echo "└── .git"
-  echo ""
-  echo "To add a new branch worktree:"
-  echo "  cd $DIR_NAME && git-worktree-add -b <type>/<branch-name> <type>-<branch-name> <from-branch>"
-  echo ""
-  echo "To list all worktrees:"
-  echo "  cd $DIR_NAME && git worktree list"
+  status_statement
+
+  safe_run "Failed to return from ${DIR_NAME}" popd
+}
+
+parse_args() {
+  PARAMS=""
+
+  while (("${#}")); do
+    case "${1}" in
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    --* | -*)
+      echo "Invalid flag"
+      show_help
+      exit 1
+      ;;
+    *)
+      PARAMS="${PARAMS} \"${1}\""
+      ;;
+    esac
+    shift
+  done
+
+  eval set -- "${PARAMS}"
+
+  if (($# < 1)) || (($# > 2)); then
+    echo "Usage: git-wt-clone <repo-url> [directory-name]"
+    echo "Example: git-wt-clone https://github.com/user/repo.git my_project"
+    exit 1
+  fi
+
+  REPO_URL="$1"
+  BASENAME="${REPO_URL##*/}"
+  DIR_NAME="${2:-${BASENAME%.*}}" # Exatract dir_name from url if not provided
+}
+
+safe_run() {
+  local msg="$1"
+  shift
+  "$@" || {
+    echo "Error: ${msg}" >&2
+    exit 1
+  }
+}
+
+show_help() {
+  cat <<'EOF'
+Usage: git-wt-clone [repository_name|repository_url] directory_name
+
+Description: Clones a repo to your system in a format where there is a
+  directory for the repo with a .git directdory and a seperate directory
+  for each branch. If directory name is not provided it is generated
+  from the repository_name/repository_url
+
+  Directory structure:
+  repository_name/
+  ├── .git  (.bare)
+  ├── main  (master branch)
+  └── develop
+
+
+Options:
+  --help | -h       Show this help
+
+Examples:
+  git-wt-clone repository_name
+  git-wt-clone git@github.com:user_name/repository_name.git
+  git-wt-clone https://github.com/user_name/repository_name.git
+  git-wt-clone https://github.com/user_name/repository_name.git my_directory
+EOF
 }
 
 clone_repo() {
@@ -60,10 +110,10 @@ clone_repo() {
 
   # Clone repository (bare)
   git clone --bare "$repo" .git
-  
+
   # Configure remote to fetch all branches and set up proper refs
   git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-  
+
   # Fetch all remote branches
   git fetch --all --prune
 
@@ -73,7 +123,7 @@ clone_repo() {
 add_default_branch() {
 
   local default_branch
-  
+
   # Check if repository is empty (no remote branches)
   if ! git branch -r | grep -q .; then
     echo ""
@@ -90,20 +140,20 @@ add_default_branch() {
     echo "This will create the project structure and initial commit."
     exit 1
   fi
-  
+
   default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-  
+
   # If not set try for "main" or "master"
   if [[ -z "${default_branch}" ]]; then
     default_branch=$(git branch -r | grep -E 'origin/main|origin/master' | grep -v HEAD | head -n 1 | cut -f 2 -d '/')
   fi
-  
+
   # Fetch all remote branches to ensure they're available
   git fetch --all
-  
+
   # Create main worktree for default branch
   git worktree add "${default_branch}"
-  
+
   # Set up upstream tracking for default branch
   if git rev-parse --verify "origin/${default_branch}" >/dev/null 2>&1; then
     git branch --set-upstream-to=origin/"${default_branch}" "${default_branch}"
@@ -113,10 +163,203 @@ add_default_branch() {
   fi
 }
 
-# This block will exit if file was sourced
-if [[ ${BASH_SOURCE[0]} != "${0}" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
+status_statement() {
+  cat <<EOF
+✅ Repository cloned successfully
+✅  worktree for default branch: ${DIR_NAME}
 
-# If not sourced run main
-main "${@}"
+Directory structure:
+$DIR_NAME/
+├── ${DEFAULT_BRANCH}  # (current branch)
+└── .git
+
+To add a new branch worktree:
+  cd $DIR_NAME && git-worktree-add -b <type>/<branch-name> <type>-<branch-name> <from-branch>
+
+To list all worktrees:
+  cd $DIR_NAME && git worktree list
+EOF
+}
+
+(return 0 2>/dev/null) || main "${@}"
+
+#!/usr/bin/env bash
+
+# git-wt-add - Add a new branch/worktree
+# Usage: git-wt-add <branch-name> [create-from-branch] [options]
+
+main() {
+  parse_args "$@"
+
+  if [[ -z "$BRANCH_NAME" ]]; then
+    echo "Error: Branch name is required"
+    show_help
+    exit 1
+  fi
+
+  DIR_NAME=$(echo "${BRANCH_NAME}" | tr '/' '-')
+
+  if [[ -d "${DIR_NAME}" ]]; then
+    echo "Error: Worktree directory ${DIR_NAME} already exists"
+    exit 1
+  fi
+
+  if ! read COMMON_DIR rest < <(git worktree list 2>/dev/null | grep bare | cut -f 1); then
+    echo "Error: Not in a git repository or .git directory not found"
+    exit 1
+  fi
+
+  add_worktree_branch
+
+  echo ""
+  echo "To work on this branch:"
+  echo "  cd ${BRANCH_NAME}"
+  echo ""
+  echo "Current worktrees"
+  git worktree list
+}
+
+# Parse command line arguments
+parse_args() {
+  AUTO_SETUP=false
+  NO_AUTO_SETUP=false
+  BRANCH_NAME=""
+  FROM_BRANCH=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    --auto-setup)
+      AUTO_SETUP=true
+      shift
+      ;;
+    --no-auto-setup)
+      NO_AUTO_SETUP=true
+      shift
+      ;;
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    --* | -*)
+      echo "Unknown flag: $1"
+      show_help
+      exit 1
+      ;;
+    *)
+      if [[ -z "$BRANCH_NAME" ]]; then
+        BRANCH_NAME="$1"
+      elif [[ -z "$FROM_BRANCH" ]]; then
+        FROM_BRANCH="$1"
+      else
+        echo "Error: Too many arguments"
+        show_help
+        exit 1
+      fi
+      shift
+      ;;
+    esac
+  done
+}
+
+safe_run() {
+  local msg="$1"
+  shift
+  "$@" || {
+    echo "Error: ${msg}" >&2
+    exit 1
+  }
+}
+
+show_help() {
+  cat <<'EOF'
+Usage: git-wt-add <branch-name> [create-from-branch] [options]
+
+Arguments:
+  branch-name          Name of the branch/worktree to create
+  create-from-branch   Base branch to create from (optional)
+
+Options:
+  --auto-setup          Enable plugin auto-setup for this worktree
+  --no-auto-setup      Disable plugin auto-setup for this worktree
+  --help, -h           Show this help
+
+Examples:
+  git-wt-add feature-new-feature                    # No auto-setup
+  git-wt-add feature-new-feature --auto-setup       # Force auto-setup  
+  git-wt-add hotfix/login-bug main --no-auto-setup # Disable auto-setup
+
+Configuration priority (highest to lowest):
+  1. CLI flags (--auto-setup/--no-auto-setup)
+  2. Config file (plugins/config/default.yaml: auto_setup)
+  3. Default behavior (auto_setup: false)
+
+EOF
+}
+
+add_worktree_branch() {
+  safe_run "Failed to change to git directory" pushd "${COMMON_DIR}"
+
+  if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
+    # Branch exists locally
+    safe_run "Failed to add existing branch worktree for ${BRANCH_NAME}" git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
+    # Set up upstream tracking if remote branch exists
+    if git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+      safe_run "Failed to set upstream tracking for ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
+      echo "✅ Upstream tracking set: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
+    fi
+  elif git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+    # Branch exists remotely - create worktree that tracks remote branch
+    safe_run "Failed to create worktree for remote branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "origin/${BRANCH_NAME}"
+    safe_run "Failed to set upstream tracking for remote branch ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
+    echo "✅ Worktree created with tracking: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
+  else
+    # Branch doesn't exist, create it
+    if [[ -n "${FROM_BRANCH}" ]]; then
+      safe_run "Failed to create new branch ${BRANCH_NAME} from ${FROM_BRANCH}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "${FROM_BRANCH}"
+    else
+      safe_run "Failed to create new branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}"
+    fi
+    echo "ℹ️  New branch created. Use 'git push -u origin ${BRANCH_NAME}' to set up tracking"
+  fi
+
+  # Auto-setup plugins if requested
+  if should_run_auto_setup; then
+    echo "Running auto-setup for worktree..."
+    if command -v plugin-manager >/dev/null 2>&1; then
+      plugin-manager auto-setup "${DIR_NAME}"
+    else
+      echo "Warning: plugin-manager not found. Install plugin system for auto-setup"
+    fi
+  fi
+
+  safe_run "Failed to return to previous directory" popd
+}
+
+check_auto_setup_config() {
+  # Check config file for auto_setup setting
+  local config_file="${XDG_CONFIG_DIR:-$HOME/.config}/gitworkflow/plugins/config/default.yaml"
+
+  if [[ -f "$config_file" ]]; then
+    # Parse YAML for auto_setup value
+    local config_value
+    config_value=$(grep '^auto_setup:' "$config_file" 2>/dev/null | cut -d: -f2 | tr -d ' ')
+    if [[ "$config_value" == "true" ]]; then
+      return 0 # auto_setup is true in config
+    fi
+  fi
+  return 1 # auto_setup is false or not found
+}
+
+should_run_auto_setup() {
+  # CLI flags take precedence
+  if [[ "$AUTO_SETUP" == true ]]; then
+    return 0 # Force enable
+  elif [[ "$NO_AUTO_SETUP" == true ]]; then
+    return 1 # Force disable
+  else
+    # Check config file
+    check_auto_setup_config
+  fi
+}
+
+(return 0 2>/dev/null) || main "${@}"

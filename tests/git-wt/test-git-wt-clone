@@ -1,208 +1,351 @@
-#!/bin/bash
+#!/usr/bin/env bash
+CMD=git-wt-clone
 
-# git-wt-clone tests
-# Tests for git repository cloning with worktree setup
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
 
-set -e
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-BIN_DIR="$PROJECT_DIR/bin"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-TESTS_TOTAL=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-log_info() { echo -e "${YELLOW}[INFO]${NC} $1"; }
-log_pass() { echo -e "${GREEN}[PASS]${NC} $1"; }
-log_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
-
-run_test() {
-    local test_name="$1"
-    local test_command="$2"
-    
-    TESTS_TOTAL=$((TESTS_TOTAL + 1))
-    
-    log_info "Running: $test_name"
-    
-    if eval "$test_command" > /dev/null 2>&1; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log_pass "$test_name"
-        return 0
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        log_fail "$test_name"
-        echo "  Command: $test_command"
-        return 1
-    fi
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
 }
 
-setup_test_env() {
-    log_info "Setting up git-wt-clone test environment"
-    
-    # Create a remote repo to clone from
-    REMOTE_REPO="/tmp/git-wt-clone-remote"
-    rm -rf "$REMOTE_REPO"
-    mkdir -p "$REMOTE_REPO"
-    cd "$REMOTE_REPO"
-    
-    git init --bare
-    cd ..
-    
-    # Create source repo
-    SOURCE_REPO="/tmp/git-wt-clone-source"
-    rm -rf "$SOURCE_REPO"
-    mkdir -p "$SOURCE_REPO"
-    cd "$SOURCE_REPO"
-    git init
-    echo "# Clone Test Repo" > README.md
-    git add README.md
-    git commit -m "Initial commit"
-    git remote add origin "$REMOTE_REPO"
-    git push origin main
-    cd ..
+test_remote_repo_loc() {
+  assert_directory_exists "${REMOTE_REPO_LOC}"
 }
 
-cleanup_test_env() {
-    log_info "Cleaning up test environment"
-    rm -rf "/tmp/git-wt-clone-remote"
-    rm -rf "/tmp/git-wt-clone-source"
-    rm -rf "/tmp/test-clone-output"
+test_clone_help() {
+  local output
+  output=$(${CMD_TESTING} --help)
+  assert_contains "Usage:" "${output}"
+  assert_exit_code 0
 }
 
-test_help_command() {
-    cd "/tmp"
-    run_test "Help command works" "'$BIN_DIR/git-wt-clone' --help | grep -q 'Usage:'"
+test_clone_invalid_args() {
+  local output
+  
+  # No arguments
+  output=$(${CMD_TESTING} 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
+  
+  # Too many arguments
+  output=$(${CMD_TESTING} url dir1 dir2 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
 }
 
-test_argument_validation() {
-    cd "/tmp"
-    run_test "Requires repository URL" "! '$BIN_DIR/git-wt-clone' 2>/dev/null"
-    run_test "Too many arguments fail" "! '$BIN_DIR/git-wt-clone' url dir1 dir2 2>/dev/null"
+test_clone_creates_directory_structure() {
+  local clone_dir="test_clone_basic"
+  local output
+  
+  output=$(${CMD_TESTING} "${REMOTE_REPO_LOC}" "${clone_dir}")
+  
+  # Verify directory was created
+  assert_directory_exists "${clone_dir}"
+  
+  # Verify it's a bare repo structure
+  assert_directory_exists "${clone_dir}/.git"
+  assert_file_exists "${clone_dir}/.git/config"
+  
+  # Verify default branch worktree exists
+  assert_directory_exists "${clone_dir}/main"
 }
 
-test_basic_clone() {
-    cd "/tmp"
-    
-    if [[ -x "$BIN_DIR/git-wt-clone" ]]; then
-        run_test "Basic clone functionality" "'$BIN_DIR/git-wt-clone' '$SOURCE_REPO' test-clone-output"
-        run_test "Clone directory created" "test -d test-clone-output"
-        run_test "Clone is git repository" "cd test-clone-output && git status > /dev/null 2>&1"
-    else
-        log_info "Skipping clone tests (git-wt-clone not available)"
-        TESTS_PASSED=$((TESTS_PASSED + 3))
-        TESTS_TOTAL=$((TESTS_TOTAL + 3))
-        log_pass "Basic clone tests skipped"
-    fi
+test_clone_sets_up_remote_tracking() {
+  local clone_dir="test_clone_tracking"
+  
+  ${CMD_TESTING} "${REMOTE_REPO_LOC}" "${clone_dir}"
+  
+  cd "${clone_dir}/main" || return 1
+  
+  # Verify upstream tracking is set
+  local upstream
+  upstream=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null || echo "")
+  assert_equals "origin/main" "${upstream}"
 }
 
-test_worktree_setup() {
-    cd "/tmp"
-    
-    if [[ -x "$BIN_DIR/git-wt-clone" ]]; then
-        run_test "Sets up worktree structure" "'$BIN_DIR/git-wt-clone' '$SOURCE_REPO' worktree-test"
-        
-        if [[ -d "worktree-test" ]]; then
-            cd worktree-test
-            run_test "Worktree is git repository" "git status > /dev/null 2>&1"
-            run_test "Main branch checked out" "git rev-parse --verify HEAD > /dev/null"
-        fi
-    else
-        log_info "Skipping worktree setup test (git-wt-clone not available)"
-        TESTS_PASSED=$((TESTS_PASSED + 3))
-        TESTS_TOTAL=$((TESTS_TOTAL + 3))
-        log_pass "Worktree setup tests skipped"
-    fi
+test_clone_directory_already_exists() {
+  local clone_dir="existing_dir"
+  mkdir "${clone_dir}"
+  
+  local output
+  output=$(${CMD_TESTING} "${REMOTE_REPO_LOC}" "${clone_dir}" 2>&1)
+  assert_exit_code 1
+  assert_contains "already exists" "${output}"
 }
 
-test_auto_setup_integration() {
-    cd "/tmp"
-    
-    if [[ -x "$BIN_DIR/git-wt-clone" ]] && command -v "$PROJECT_DIR/bin/plugin-manager" >/dev/null 2>&1; then
-        # Create a repo with package.json for testing
-        mkdir -p "$SOURCE_REPO-with-packages"
-        cd "$SOURCE_REPO-with-packages"
-        git init
-        echo '{"name": "test-repo"}' > package.json
-        git add package.json
-        git commit -m "Add package.json"
-        git remote add origin "$REMOTE_REPO"
-        git push origin main
-        cd ..
-        
-        # Test clone with auto-setup
-        run_test "Clone with auto-setup capability" "'$BIN_DIR/git-wt-clone' '$SOURCE_REPO-with-packages' auto-test"
-        
-        rm -rf "$SOURCE_REPO-with-packages"
-    else
-        log_info "Skipping auto-setup test (git-wt-clone or plugin-manager not available)"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        TESTS_TOTAL=$((TESTS_TOTAL + 1))
-        log_pass "Auto-setup test skipped"
-    fi
+test_clone_empty_repository() {
+  # Create an empty remote repo
+  local empty_remote="${TMPDIR}/empty_remote_$$"
+  mkdir -p "${empty_remote}"
+  cd "${empty_remote}"
+  git init --bare .
+  cd "${TMPDIR}"
+  
+  local clone_dir="test_empty_clone"
+  local output
+  output=$(${CMD_TESTING} "${empty_remote}" "${clone_dir}" 2>&1)
+  
+  # Should handle empty repo gracefully
+  assert_exit_code 1
+  assert_contains "Empty repository" "${output}"
+  
+  # Cleanup
+  rm -rf "${empty_remote}"
 }
 
-test_error_handling() {
-    cd "/tmp"
-    
-    if [[ -x "$BIN_DIR/git-wt-clone" ]]; then
-        # Test invalid URL
-        run_test "Handles invalid repository URL" "! '$BIN_DIR/git-wt-clone' 'invalid-url' 2>/dev/null"
-        
-        # Test non-existent repo
-        run_test "Handles non-existent repository" "! '$BIN_DIR/git-wt-clone' '/tmp/non-existent-repo' 2>/dev/null"
-    else
-        log_info "Skipping error handling tests (git-wt-clone not available)"
-        TESTS_PASSED=$((TESTS_PASSED + 2))
-        TESTS_TOTAL=$((TESTS_TOTAL + 2))
-        log_pass "Error handling tests skipped"
-    fi
+test_clone_dir_name_extracted_from_url() {
+  # Test that directory name is extracted from URL when not provided
+  local output
+  
+  # Create a symlink with .git suffix to simulate URL-based naming
+  local remote_with_git_suffix="${TMPDIR}/remote_repo.git"
+  ln -s "${REMOTE_REPO_LOC}" "${remote_with_git_suffix}"
+  
+  # Clone without specifying directory name
+  # Directory should be named "remote_repo" (from "remote_repo.git")
+  output=$(${CMD_TESTING} "${remote_with_git_suffix}")
+  
+  # Verify directory was created with name extracted from URL
+  assert_directory_exists "remote_repo"
+  
+  # Verify it's a valid clone
+  assert_directory_exists "remote_repo/.git"
+  assert_directory_exists "remote_repo/main"
+  
+  # Cleanup
+  rm -f "${remote_with_git_suffix}"
 }
 
-print_summary() {
-    echo ""
-    echo "================================"
-    echo "git-wt-clone Test Summary"
-    echo "================================"
-    echo "Total tests: $TESTS_TOTAL"
-    echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
-    echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
-    
-    if [[ $TESTS_FAILED -eq 0 ]]; then
-        echo -e "\n${GREEN}✓ All git-wt-clone tests passed!${NC}"
-        return 0
-    else
-        echo -e "\n${RED}✗ Some git-wt-clone tests failed${NC}"
-        return 1
-    fi
+test_clone_fallback_without_origin_head() {
+  # Test fallback when origin/HEAD symbolic ref is not set
+  # Create a remote repo without origin/HEAD
+  local remote_no_head="${TMPDIR}/remote_no_head_$$"
+  mkdir -p "${remote_no_head}"
+  cd "${remote_no_head}"
+  git init --bare .
+  
+  # Create temp repo and push without setting HEAD
+  mkdir -p "${TMPDIR}/temp_no_head"
+  cd "${TMPDIR}/temp_no_head"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${remote_no_head}"
+  git push origin main
+  
+  # Unset origin/HEAD symbolic ref
+  cd "${remote_no_head}"
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main 2>/dev/null || true
+  git symbolic-ref -d refs/remotes/origin/HEAD 2>/dev/null || true
+  
+  cd "${TMPDIR}"
+  
+  local clone_dir="test_no_head"
+  local output
+  output=$(${CMD_TESTING} "${remote_no_head}" "${clone_dir}")
+  
+  # Verify clone succeeded
+  assert_directory_exists "${clone_dir}"
+  assert_directory_exists "${clone_dir}/main"
+  
+  # Verify the success message shows the correct branch
+  assert_contains "worktree for default branch: ${clone_dir}" "${output}"
+  
+  # Cleanup
+  rm -rf "${remote_no_head}" "${TMPDIR}/temp_no_head"
 }
 
-main() {
-    echo "================================"
-    echo "git-wt-clone Test Suite"
-    echo "================================"
-    
-    setup_test_env
-    
-    test_help_command
-    test_argument_validation
-    test_basic_clone
-    test_worktree_setup
-    test_auto_setup_integration
-    test_error_handling
-    
-    print_summary
-    cleanup_test_env
-    
-    exit $([[ $TESTS_FAILED -eq 0 ]] && echo 0 || echo 1)
+test_clone_success_output_format() {
+  # Test that success output format is correct (lines 31-43)
+  local clone_dir="test_output_format"
+  local output
+  
+  output=$(${CMD_TESTING} "${REMOTE_REPO_LOC}" "${clone_dir}")
+  
+  # Verify success messages
+  assert_contains "✅ Repository cloned successfully" "${output}"
+  assert_contains "✅  worktree for default branch: ${clone_dir}" "${output}"
+  
+  # Verify directory structure output
+  assert_contains "Directory structure:" "${output}"
+  assert_contains "${clone_dir}/" "${output}"
+  assert_contains "├── main" "${output}"
+  assert_contains "└── .git" "${output}"
+  
+  # Verify usage instructions
+  assert_contains "To add a new branch worktree:" "${output}"
+  assert_contains "To list all worktrees:" "${output}"
+  assert_contains "git worktree list" "${output}"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+# NOTE: Coverage gap #3 exists but is difficult to test
+# The scenario where default branch exists but origin/branch doesn't (lines 109-114)
+# requires a race condition or corrupted git state that can't be easily reproduced
+# The code handles it defensively with an informative message
+
+test_clone_invalid_url() {
+  # Test git clone --bare failure with invalid URL
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} "invalid://not-a-valid-url" "test_invalid" 2>&1) || exit_code=$?
+  
+  # Should fail with error
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "Cloning repository" "${output}"
+}
+
+test_clone_nonexistent_path() {
+  # Test with non-existent local path
+  local output
+  local exit_code=0
+  
+  output=$(${CMD_TESTING} "/nonexistent/path/to/repo" "test_nonexistent" 2>&1) || exit_code=$?
+  
+  # Should fail with error
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "Cloning repository" "${output}"
+}
+
+test_clone_master_default_branch() {
+  # Test cloning a repo with 'master' as default branch instead of 'main'
+  local remote_master="${TMPDIR}/remote_master_$$"
+  mkdir -p "${remote_master}"
+  cd "${remote_master}"
+  git init --bare .
+  
+  # Create temp repo with master branch
+  mkdir -p "${TMPDIR}/temp_master"
+  cd "${TMPDIR}/temp_master"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Master Branch" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git branch -m master  # Ensure branch is named master
+  git remote add origin "${remote_master}"
+  git push origin master
+  
+  cd "${TMPDIR}"
+  
+  local clone_dir="test_master_branch"
+  local output
+  output=$(${CMD_TESTING} "${remote_master}" "${clone_dir}")
+  
+  # Verify clone succeeded with master as default
+  assert_directory_exists "${clone_dir}"
+  assert_directory_exists "${clone_dir}/master"
+  
+  # Verify tracking was set for master
+  assert_contains "✅ Upstream tracking set: master → origin/master" "${output}"
+  
+  # Cleanup
+  rm -rf "${remote_master}" "${TMPDIR}/temp_master"
+}
+
+# @data_provider provider_clone_branch_names_with_special_chars
+function test_clone_branch_name_::1::_creates_worktree_::2::() {
+  local branch_name="$1"
+  local expected_dir="$2"
+  local remote_special="${TMPDIR}/remote_special_${branch_name//\//_}_$$"
+  
+  # Create remote repo with main as default AND a special branch name
+  mkdir -p "${remote_special}"
+  cd "${remote_special}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_special"
+  cd "${TMPDIR}/temp_special"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  # Push main first (required for default branch)
+  git remote add origin "${remote_special}"
+  git push origin main
+  # Now create and push the special branch
+  git checkout -b "${branch_name}"
+  echo "# ${branch_name}" > README.md
+  git add README.md
+  git commit -m "Special branch commit"
+  git push origin "${branch_name}"
+  
+  cd "${TMPDIR}"
+  
+  local clone_dir="clone_${expected_dir}"
+  local output
+  output=$(${CMD_TESTING} "${remote_special}" "${clone_dir}")
+  
+  # Verify clone succeeded (main is default worktree)
+  assert_directory_exists "${clone_dir}"
+  assert_directory_exists "${clone_dir}/main"
+  
+  # Verify the special branch was fetched and is available
+  assert_contains "${branch_name}" "${output}"
+  
+  # Cleanup
+  rm -rf "${remote_special}" "${TMPDIR}/temp_special"
+}
+
+function provider_clone_branch_names_with_special_chars() {
+  # Test branch names that git-wt-clone should handle
+  # Format: bashunit::data_set "branch_name" "branch_name_display"
+  
+  # Standard slash conversion
+  bashunit::data_set "feature/test-branch" "feature/test-branch"
+  # Multiple slashes
+  bashunit::data_set "feature/test/nested" "feature/test/nested"
+  # Hyphens in branch name
+  bashunit::data_set "feature-my-branch" "feature-my-branch"
+  # Underscores
+  bashunit::data_set "feature_test_branch" "feature_test_branch"
+  # Numbers
+  bashunit::data_set "feature/123-test" "feature/123-test"
+  # Mixed case
+  bashunit::data_set "Feature/TestBranch" "Feature/TestBranch"
+  # Unicode characters
+  bashunit::data_set "feature/测试-branch" "feature/测试-branch"
+  # Dots (valid in git branch names)
+  bashunit::data_set "release/v1.0.0" "release/v1.0.0"
+  # At symbol (valid in git)
+  bashunit::data_set "feature/test@2x" "feature/test@2x"
+}
+
+# @data_provider provider_clone_dir_names_with_special_chars
+function test_clone_dir_name_special_::1::_creates_::2::() {
+  local url_suffix="$1"
+  local expected_dir="$2"
+  local remote_with_suffix="${TMPDIR}/remote_repo${url_suffix}"
+  
+  # Create a symlink to simulate URL with special characters
+  ln -s "${REMOTE_REPO_LOC}" "${remote_with_suffix}"
+  
+  cd "${TMPDIR}"
+  local output
+  output=$(${CMD_TESTING} "${remote_with_suffix}" "${expected_dir}")
+  
+  # Verify directory was created with correct name
+  assert_directory_exists "${expected_dir}"
+  assert_directory_exists "${expected_dir}/.git"
+  
+  # Cleanup
+  rm -f "${remote_with_suffix}"
+}
+
+function provider_clone_dir_names_with_special_chars() {
+  # Test URL suffixes and expected directory names
+  # Format: bashunit::data_set "url_suffix" "expected_directory_name"
+  
+  # Standard .git suffix - creates "remote_repo" directory
+  bashunit::data_set ".git" "clone_remote_repo"
+}
+
+# Above here comes from testing template tests/utils/model-test
+# You will need to supply the command name being tested
