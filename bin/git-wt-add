@@ -3,15 +3,6 @@
 # git-wt-add - Add a new branch/worktree
 # Usage: git-wt-add <branch-name> [create-from-branch] [options]
 
-run_or_die() {
-  local msg="$1"
-  shift
-  "$@" || {
-    echo "Error: ${msg}" >&2
-    exit 1
-  }
-}
-
 main() {
   parse_args "$@"
 
@@ -85,7 +76,7 @@ parse_args() {
   done
 }
 
-run_or_die() {
+safe_run() {
   local msg="$1"
   shift
   "$@" || {
@@ -121,27 +112,27 @@ EOF
 }
 
 add_worktree_branch() {
-  run_or_die "Failed to change to git directory" pushd "${COMMON_DIR}"
+  safe_run "Failed to change to git directory" pushd "${COMMON_DIR}"
 
   if git rev-parse --verify "${BRANCH_NAME}" >/dev/null 2>&1; then
     # Branch exists locally
-    run_or_die "Failed to add existing branch worktree for ${BRANCH_NAME}" git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
+    safe_run "Failed to add existing branch worktree for ${BRANCH_NAME}" git worktree add "${DIR_NAME}" "${BRANCH_NAME}"
     # Set up upstream tracking if remote branch exists
     if git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
-      run_or_die "Failed to set upstream tracking for ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
+      safe_run "Failed to set upstream tracking for ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
       echo "✅ Upstream tracking set: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
     fi
   elif git rev-parse --verify "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
     # Branch exists remotely - create worktree that tracks remote branch
-    run_or_die "Failed to create worktree for remote branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "origin/${BRANCH_NAME}"
-    run_or_die "Failed to set upstream tracking for remote branch ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
+    safe_run "Failed to create worktree for remote branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "origin/${BRANCH_NAME}"
+    safe_run "Failed to set upstream tracking for remote branch ${BRANCH_NAME}" git branch --set-upstream-to=origin/"${BRANCH_NAME}" "${BRANCH_NAME}"
     echo "✅ Worktree created with tracking: ${BRANCH_NAME} → origin/${BRANCH_NAME}"
   else
     # Branch doesn't exist, create it
     if [[ -n "${FROM_BRANCH}" ]]; then
-      run_or_die "Failed to create new branch ${BRANCH_NAME} from ${FROM_BRANCH}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "${FROM_BRANCH}"
+      safe_run "Failed to create new branch ${BRANCH_NAME} from ${FROM_BRANCH}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}" "${FROM_BRANCH}"
     else
-      run_or_die "Failed to create new branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}"
+      safe_run "Failed to create new branch ${BRANCH_NAME}" git worktree add -b "${BRANCH_NAME}" "${DIR_NAME}"
     fi
     echo "ℹ️  New branch created. Use 'git push -u origin ${BRANCH_NAME}' to set up tracking"
   fi
@@ -156,7 +147,7 @@ add_worktree_branch() {
     fi
   fi
 
-  run_or_die "Failed to return to previous directory" popd
+  safe_run "Failed to return to previous directory" popd
 }
 
 check_auto_setup_config() {
