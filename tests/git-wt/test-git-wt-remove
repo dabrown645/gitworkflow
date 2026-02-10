@@ -250,16 +250,17 @@ test_not_git_repository() {
   popd || fail "Failed to return from test_repo"
 }
 
-test_special_characters_spaces() {
-  local output
-  local wt_name="worktree with spaces"
-  local branch="spaces"
+# @data_provider provider_worktree_names_with_special_chars
+function test_remove_worktree_name_::1::_removes_directory() {
+  local wt_name="$1"
+  local branch="$2"
 
   create_test_repo
   pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
 
   git worktree add -b "feature/${branch}" "${wt_name}"
   assert_directory_exists "${wt_name}"
+  local output
   output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
   assert_contains "Worktree removed successfully" "${output}"
   assert_directory_not_exists "${wt_name}"
@@ -267,41 +268,26 @@ test_special_characters_spaces() {
   popd || fail "Failed to return from test_repo"
 }
 
-test_special_characters_unicode() {
-  local output
-  local wt_name="worktree-with-unicode-测试"
-  local branch="unicode"
-
-  # export LC_ALL=C
-  # export LANG=C
-  echo "=== DEBUG: Locale/Environment ===" >&2
-  echo "LANG: $LANG" >&2
-  echo "LC_ALL: $LC_ALL" >&2
-  echo "Locale: $(locale charmap)" >&2
-  echo "File encoding: $(locale charset)" >&2
-
-  create_test_repo
-  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
-
-  git worktree add -b "feature/${branch}" "${wt_name}"
-  assert_directory_exists "${wt_name}"
-  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
-  assert_contains "Worktree removed successfully" "${output}"
-  assert_directory_not_exists "${wt_name}"
-}
-
-test_special_characters_slashes() {
-  local output
-  local wt_name="worktree/with/slashes"
-  local branch="slashes"
-
-  create_test_repo
-  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
-
-  git worktree add -b "feature/${branch}" "${wt_name}"
-  assert_directory_exists "${wt_name}"
-  output=$("$CMD_TESTING" "${wt_name}" 2>&1 || true)
-  assert_contains "Worktree removed successfully" "${output}"
-  assert_directory_not_exists "${wt_name}"
-
+function provider_worktree_names_with_special_chars() {
+  # Test various special characters in worktree names
+  # Format: bashunit::data_set "worktree_name" "branch_name"
+  
+  # Spaces in directory name
+  bashunit::data_set "worktree with spaces" "spaces"
+  # Unicode characters
+  bashunit::data_set "worktree-with-unicode-测试" "unicode"
+  # Slashes in directory name
+  bashunit::data_set "worktree/with/slashes" "slashes"
+  # Hyphens
+  bashunit::data_set "worktree-with-hyphens" "hyphens"
+  # Underscores
+  bashunit::data_set "worktree_with_underscores" "underscores"
+  # Numbers
+  bashunit::data_set "worktree-123-test" "numbers"
+  # Mixed case
+  bashunit::data_set "Worktree-With-Mixed-Case" "mixed-case"
+  # Dots (valid in directory names)
+  bashunit::data_set "worktree.v1.0.0" "dots"
+  # At symbol
+  bashunit::data_set "worktree@2x" "atsymbol"
 }

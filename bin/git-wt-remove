@@ -80,20 +80,22 @@ parse_args() {
 }
 
 show_help() {
-  echo "Usage: git-wt-remove <worktree-name> [--force|-f] [--help|-h]"
-  echo ""
-  echo "Description: git-wt-remove removes a worktree but NOT the associated branch"
-  echo ""
-  echo "Options:"
-  echo "  --force|-f      Remove worktree even if it has uncommitted changes"
-  echo "  --help|-h       Show this help"
-  echo ""
-  echo "Examples:"
-  echo "  git-wt-remove feature-worktree"
-  echo "  git-wt-remove old-worktree --force"
-  echo ""
-  echo "A worktree can only be removed if you're not currently in it."
-  echo ""
+  cat <<'EOF'
+Usage: git-wt-remove <worktree-name> [--force|-f] [--help|-h]
+
+Description: git-wt-remove removes a worktree but NOT the associated branch
+
+Options:
+  --force|-f      Remove worktree even if it has uncommitted changes
+  --help|-h       Show this help
+
+Examples:
+  git-wt-remove feature-worktree
+  git-wt-remove old-worktree --force
+
+A worktree can only be removed if you're not currently in it.
+
+EOF
 }
 
 set_common_dir() {
