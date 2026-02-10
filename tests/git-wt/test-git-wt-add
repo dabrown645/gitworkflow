@@ -1,0 +1,558 @@
+#!/usr/bin/env bash
+export CMD="git-wt-add"
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
+}
+
+test_remote_repo_loc() {
+  assert_directory_exists "${REMOTE_REPO_LOC}"
+}
+
+# Above here comes from testing template tests/utils/model-test
+# You will need to supply the command name being tested
+#^^^^^^^^^^^^^^^^
+
+# functions to help setup the testing environment
+create_clone_of_remote() {
+  local clone_name=${1}
+  mkdir "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # git clone "${REMOTE_REPO_LOC}" ${clone_name}
+  local output
+  output=-$(git clone --bare "${REMOTE_REPO_LOC}" .git 2>&1 || true)
+  git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  git fetch --all --prune
+  git fetch --all
+  git worktree add main
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+# Test functions
+test_create_clone_remote() {
+  local output
+  local clone_name="existing_branch"
+  create_clone_of_remote "${clone_name}"
+  assert_directory_exists "${clone_name}"
+  assert_directory_exists "${clone_name}/main"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(git branch 2>&1 || true)
+  assert_contains "main" "${output}"
+  assert_contains "develop" "${output}"
+
+  output=$(git worktree list)
+  assert_contains "main" "${output}"
+  assert_not_contains "develop" "${output}"
+  popd || fail "Failed to return from ${clone_name}"
+
+}
+
+test_no_arguments() {
+  local output
+  output=$("${CMD_TESTING}" 2>&1 || true)
+  assert_contains "Error: Branch name is required" "${output}"
+
+  "${CMD_TESTING}" >/dev/null 2>&1
+  assert_exit_code 1
+}
+
+test_bad_argument() {
+  local output
+  output=$("${CMD_TESTING}" --unknown 2>&1)
+  assert_contains "Unknown flag:" "${output}"
+
+  "${CMD_TESTING}" --unknown >/dev/null 2>&1
+  assert_exit_code 1
+}
+
+test_help_flag() {
+  local output
+  output=$("${CMD_TESTING}" --help)
+  assert_contains "Usage:" "${output}"
+  assert_contains "Arguments:" "${output}"
+  assert_contains "Options:" "${output}"
+  assert_contains "Examples:" "${output}"
+  assert_exit_code 0
+
+  output=$("${CMD_TESTING}" -h)
+  assert_contains "Usage:" "${output}"
+  assert_contains "Arguments:" "${output}"
+  assert_contains "Options:" "${output}"
+  assert_contains "Examples:" "${output}"
+  assert_exit_code 0
+}
+
+test_arg_count_invalid() {
+
+  "${CMD_TESTING}" >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" a b c >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" --auto-setup >/dev/null 2>&1
+  assert_exit_code 1
+
+  "${CMD_TESTING}" a b --auto-setup >/dev/null 2>&1
+  assert_exit_code 1
+}
+
+test_add_worktree_existing_branch() {
+  local clone_name="existing_branch"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Verify origin/develop exists before running command
+  git rev-parse --verify "origin/develop" >/dev/null 2>&1
+  assert_exit_code 0
+
+  output=$(${CMD_TESTING} develop)
+
+  # Verify worktree was created
+  assert_contains "Upstream tracking set" "${output}"
+
+  # Verify worktree appears in list
+  local wt_list
+  wt_list=$(git worktree list)
+  assert_contains "main" "${wt_list}"
+  assert_contains "develop" "${wt_list}"
+
+  # Verify upstream tracking is configured
+  pushd "develop" || fail "Failed to cd into develop worktree"
+  local upstream
+  upstream=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null || echo "")
+  assert_equals "origin/develop" "${upstream}"
+  popd || fail "Failed to return from develop"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_add_worktree_remote_only_branch() {
+  local clone_name="remote_only_branch"
+  local branch_name="feature/remote-only"
+  local worktree_dir="feature-remote-only"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Create a new branch and push it to origin
+  cd main
+  git checkout -b "${branch_name}"
+  echo "# Remote only branch" >README.md
+  git add README.md
+  git commit -m "Add remote-only branch"
+  git push -u origin "${branch_name}"
+
+  # Switch back to main and delete the local branch
+  git checkout main
+  git branch -D "${branch_name}"
+  cd ..
+
+  # Verify local branch is deleted but origin branch exists
+  git rev-parse --verify "${branch_name}" 2>/dev/null && fail "Local branch should not exist" || true
+  git rev-parse --verify "origin/${branch_name}" >/dev/null 2>&1
+  assert_exit_code 0
+
+  # Run git-wt-add on the remote-only branch
+  local output
+  output=$(${CMD_TESTING} "${branch_name}")
+
+  # Verify worktree created with tracking message
+  assert_contains "Worktree created with tracking" "${output}"
+  assert_contains "${branch_name} → origin/${branch_name}" "${output}"
+
+  # Verify worktree exists
+  assert_directory_exists "${worktree_dir}"
+
+  # Verify worktree appears in list
+  local wt_list
+  wt_list=$(git worktree list)
+  assert_contains "${worktree_dir}" "${wt_list}"
+
+  # Verify branch tracks origin
+  pushd "${worktree_dir}" || fail "Failed to cd into ${worktree_dir}"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "${branch_name}" "${current_branch}"
+
+  local upstream
+  upstream=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null || echo "")
+  assert_equals "origin/${branch_name}" "${upstream}"
+  popd || fail "Failed to return from ${worktree_dir}"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_add_worktree_new_branch() {
+  local clone_name="new_branch"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(${CMD_TESTING} feature/${clone_name})
+  output=$(git worktree list)
+  assert_contains "main" "${output}"
+  assert_contains "feature-${clone_name}" "${output}"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_add_worktree_worktree_exists() {
+  local clone_name="new_branch"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(${CMD_TESTING} feature/${clone_name})
+  output=$(git worktree list)
+  assert_contains "main" "${output}"
+  assert_contains "feature-${clone_name}" "${output}"
+
+  output=$(${CMD_TESTING} feature/${clone_name} 2>&1)
+  assert_contains "Error: Worktree directory" "${output}"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_not_in_git_repo() {
+  local clone_name="bad_repo"
+  create_clone_of_remote "${clone_name}"
+
+  output=$(${CMD_TESTING} feature/new_branch 2>&1)
+  assert_contains "Error: Not in a git repository" "${output}"
+
+}
+
+test_add_worktree_specific_branch() {
+  local output
+  local clone_name="specific_branch"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(${CMD_TESTING} feature/${clone_name} develop)
+  assert_contains "New branch created" "${output}"
+  assert_contains "feature-${clone_name}" "${output}"
+
+  # Verify the worktree was created and we're in the right branch context
+  pushd "feature-${clone_name}" || fail "Failed to cd into worktree"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "feature/${clone_name}" "${current_branch}"
+
+  # Verify the branch was created from develop by checking the commit history
+  local develop_commit
+  develop_commit=$(git rev-parse develop)
+  local current_commit
+  current_commit=$(git rev-parse HEAD)
+  assert_equals "${develop_commit}" "${current_commit}"
+  popd || fail "Failed to return from worktree"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_autosetup() {
+  local output
+  local clone_name="autosetup"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(${CMD_TESTING} feature/${clone_name} --auto-setup)
+  assert_contains "New branch created" "${output}"
+  assert_contains "Running auto-setup" "${output}"
+
+  # Verify the worktree was created
+  assert_directory_exists "feature-${clone_name}"
+
+  # Verify we're on the correct branch in the worktree
+  pushd "feature-${clone_name}" || fail "Failed to cd into worktree"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "feature/${clone_name}" "${current_branch}"
+  popd || fail "Failed to return from worktree"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_no_autosetup() {
+  local output
+  local clone_name="no_autosetup"
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+  output=$(${CMD_TESTING} feature/${clone_name} --no-auto-setup)
+  assert_contains "New branch created" "${output}"
+  assert_not_contains "Running auto-setup" "${output}"
+
+  # Verify the worktree was created
+  assert_directory_exists "feature-${clone_name}"
+
+  # Verify we're on the correct branch in the worktree
+  pushd "feature-${clone_name}" || fail "Failed to cd into worktree"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "feature/${clone_name}" "${current_branch}"
+  popd || fail "Failed to return from worktree"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+test_autosetup_from_config_file() {
+  local output
+  local clone_name="autosetup_config"
+
+  # Save original XDG_CONFIG_DIR
+  local original_xdg_config="${XDG_CONFIG_DIR:-}"
+
+  # Set up temp config directory
+  export XDG_CONFIG_DIR="${TMPDIR}/test_config_$$"
+  mkdir -p "${XDG_CONFIG_DIR}/gitworkflow/plugins/config"
+  echo "auto_setup: true" >"${XDG_CONFIG_DIR}/gitworkflow/plugins/config/default.yaml"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Run without --auto-setup flag - should still auto-setup from config
+  output=$(${CMD_TESTING} feature/${clone_name})
+
+  # Verify auto-setup ran (from config, not CLI flag)
+  assert_contains "Running auto-setup" "${output}"
+
+  # Verify the worktree was created
+  assert_directory_exists "feature-${clone_name}"
+
+  popd || fail "Failed to return from ${clone_name}"
+
+  # Restore original XDG_CONFIG_DIR
+  if [[ -n "${original_xdg_config}" ]]; then
+    export XDG_CONFIG_DIR="${original_xdg_config}"
+  else
+    unset XDG_CONFIG_DIR
+  fi
+
+  # Cleanup temp config
+  rm -rf "${TMPDIR}/test_config_$$"
+}
+
+test_no_autosetup_from_config_file() {
+  local output
+  local clone_name="no_autosetup_config"
+
+  # Save original XDG_CONFIG_DIR
+  local original_xdg_config="${XDG_CONFIG_DIR:-}"
+
+  # Set up temp config directory with auto_setup: false
+  export XDG_CONFIG_DIR="${TMPDIR}/test_config_no_auto_$$"
+  mkdir -p "${XDG_CONFIG_DIR}/gitworkflow/plugins/config"
+  echo "auto_setup: false" >"${XDG_CONFIG_DIR}/gitworkflow/plugins/config/default.yaml"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Run without any auto-setup flags - should NOT auto-setup from config
+  output=$(${CMD_TESTING} feature/${clone_name})
+
+  # Verify auto-setup did NOT run
+  assert_not_contains "Running auto-setup" "${output}"
+
+  # Verify the worktree was still created
+  assert_directory_exists "feature-${clone_name}"
+
+  popd || fail "Failed to return from ${clone_name}"
+
+  # Restore original XDG_CONFIG_DIR
+  if [[ -n "${original_xdg_config}" ]]; then
+    export XDG_CONFIG_DIR="${original_xdg_config}"
+  else
+    unset XDG_CONFIG_DIR
+  fi
+
+  # Cleanup temp config
+  rm -rf "${TMPDIR}/test_config_no_auto_$$"
+}
+
+test_no_autosetup_flag_overrides_config() {
+  local output
+  local clone_name="flag_overrides_config"
+
+  # Save original XDG_CONFIG_DIR
+  local original_xdg_config="${XDG_CONFIG_DIR:-}"
+
+  # Set up temp config directory with auto_setup: true
+  export XDG_CONFIG_DIR="${TMPDIR}/test_config_override_$$"
+  mkdir -p "${XDG_CONFIG_DIR}/gitworkflow/plugins/config"
+  echo "auto_setup: true" >"${XDG_CONFIG_DIR}/gitworkflow/plugins/config/default.yaml"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Run with --no-auto-setup flag - should override config
+  output=$(${CMD_TESTING} feature/${clone_name} --no-auto-setup)
+
+  # Verify auto-setup did NOT run despite config saying true
+  assert_not_contains "Running auto-setup" "${output}"
+
+  # Verify the worktree was still created
+  assert_directory_exists "feature-${clone_name}"
+
+  popd || fail "Failed to return from ${clone_name}"
+
+  # Restore original XDG_CONFIG_DIR
+  if [[ -n "${original_xdg_config}" ]]; then
+    export XDG_CONFIG_DIR="${original_xdg_config}"
+  else
+    unset XDG_CONFIG_DIR
+  fi
+
+  # Cleanup temp config
+  rm -rf "${TMPDIR}/test_config_override_$$"
+}
+
+test_autosetup_plugin_manager_not_found() {
+  local output
+  local clone_name="autosetup_no_plugin"
+
+  # Save original PATH
+  local original_path="${PATH}"
+
+  # Remove paths that might contain plugin-manager
+  # Keep only essential system paths
+  export PATH="/usr/bin:/bin"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Run with --auto-setup flag
+  output=$(${CMD_TESTING} feature/${clone_name} --auto-setup)
+
+  # Verify the warning message appears
+  assert_contains "Warning: plugin-manager not found" "${output}"
+  assert_contains "Install plugin system for auto-setup" "${output}"
+
+  # Verify the worktree was still created despite warning
+  assert_directory_exists "feature-${clone_name}"
+
+  # Verify we're on the correct branch
+  pushd "feature-${clone_name}" || fail "Failed to cd into worktree"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "feature/${clone_name}" "${current_branch}"
+  popd || fail "Failed to return from worktree"
+
+  popd || fail "Failed to return from ${clone_name}"
+
+  # Restore original PATH
+  export PATH="${original_path}"
+}
+
+test_worktree_add_fails_with_existing_file() {
+  local output
+  local clone_name="worktree_file_conflict"
+  local branch_name="feature/test-branch"
+  local worktree_dir="feature-test-branch"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Create a file with the same name as the expected worktree directory
+  # This will pass the -d check but cause git worktree add to fail
+  touch "${worktree_dir}"
+
+  # Run git-wt-add - should fail with custom error message
+  output=$(${CMD_TESTING} "${branch_name}" 2>&1)
+  local exit_code=$?
+
+  # Verify exit code is 1 (failure)
+  assert_equals 1 "${exit_code}"
+
+  # Verify custom error message appears
+  assert_contains "Error: Failed to create new branch ${branch_name}" "${output}"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+# @data_provider provider_branch_names_with_special_chars
+function test_branch_name_::1::_creates_directory_::2::() {
+  local branch_name="$1"
+  local expected_dir="$2"
+  local clone_name="branch_chars_test"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  local output
+  output=$(${CMD_TESTING} "${branch_name}" 2>&1)
+
+  assert_directory_exists "${expected_dir}"
+  assert_contains "New branch created" "${output}"
+
+  # Verify branch was created correctly
+  pushd "${expected_dir}" || fail "Failed to cd into ${expected_dir}"
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  assert_equals "${branch_name}" "${current_branch}"
+  popd || fail "Failed to return from worktree"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+function provider_branch_names_with_special_chars() {
+  # Format: bashunit::data_set "branch_name" "expected_directory_name"
+  # Standard slash conversion (branch/name → branch-name)
+  bashunit::data_set "feature/test-branch" "feature-test-branch"
+  # Multiple slashes
+  bashunit::data_set "feature/test/nested" "feature-test-nested"
+  # Hyphens in branch name
+  bashunit::data_set "feature-my-branch" "feature-my-branch"
+  # Underscores
+  bashunit::data_set "feature_test_branch" "feature_test_branch"
+  # Numbers
+  bashunit::data_set "feature/123-test" "feature-123-test"
+  # Mixed case
+  bashunit::data_set "Feature/TestBranch" "Feature-TestBranch"
+  # Unicode characters
+  bashunit::data_set "feature/测试-branch" "feature-测试-branch"
+  # Dots (valid in git branch names)
+  bashunit::data_set "release/v1.0.0" "release-v1.0.0"
+  # At symbol (valid in git)
+  bashunit::data_set "feature/test@2x" "feature-test@2x"
+}
+
+# @data_provider provider_invalid_branch_names
+function test_invalid_branch_name_::1::_fails_with_error() {
+  local invalid_branch="$1"
+  local clone_name="invalid_test_$(echo "$invalid_branch" | tr '/@.' '_')"
+
+  create_clone_of_remote "${clone_name}"
+
+  pushd "${clone_name}" || fail "Failed to cd into ${clone_name}"
+
+  # Run the command and capture exit code
+  ${CMD_TESTING} "${invalid_branch}" >/dev/null 2>&1
+  local exit_code=$?
+
+  # Should fail - git rejects invalid branch names (returns 255)
+  assert_not_equals 0 "${exit_code}"
+
+  popd || fail "Failed to return from ${clone_name}"
+}
+
+function provider_invalid_branch_names() {
+  # Git rejects these characters in branch names
+  bashunit::data_set "feature~test"
+  bashunit::data_set "feature^test"
+  bashunit::data_set "feature:test"
+  bashunit::data_set "feature..test"
+  bashunit::data_set "feature@{test"
+}
