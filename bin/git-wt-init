@@ -77,7 +77,7 @@ extract_repo_name() {
 }
 
 exit_if_project_dir_exists() {
-    if [[ -d "${PROJECT_NAME}" ]]; then
+  if [[ -d "${PROJECT_NAME}" ]]; then
     errormsg "Directory ${PROJECT_NAME} already exists"
     exit 1
   fi
