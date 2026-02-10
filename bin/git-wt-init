@@ -125,11 +125,13 @@ init_project() {
   # Create worktree for the default branch
   git -C "${PWD}"/"${project}" worktree add -b "${DEFAULT_BRANCH}" "${DEFAULT_BRANCH}"
 
-  # Set up empty initial commit if remote is provided (for blank repos)
+  # Create an initial commit so the branch can be used as a base for worktrees
+  git -C "${PWD}"/"${project}"/"${DEFAULT_BRANCH}" commit --allow-empty --allow-empty-message --message ""
+  echo "✅ Initial commit created"
+
+  # If remote provided, set it up for pushing
   if [[ -n "${remote}" ]]; then
-    # Create an empty commit with empty message
-    git -C "${PWD}"/"${project}"/"${DEFAULT_BRANCH}" commit --allow-empty --allow-empty-message --message ""
-    echo "✅ Empty initial commit created"
+    echo "✅ Remote configured: ${remote}"
   fi
 }
 

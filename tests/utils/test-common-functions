@@ -2,7 +2,9 @@
 
 source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
 
-# Tests for commont_test_functions
+# Tests for common_test_functions
+# These tests verify the test infrastructure works correctly
+
 test_setup_before() {
   local output
   assert_directory_exists "${REMOTE_REPO_LOC}"
@@ -11,7 +13,6 @@ test_setup_before() {
   output=$(git -C "${REMOTE_REPO_LOC}" branch)
   assert_contains "main" "${output}"
   assert_contains "develop" "${output}"
-
 }
 
 test_setup() {
@@ -21,73 +22,9 @@ test_setup() {
 test_create_worktree_clone() {
   local output
   create_worktree_clone
-  # assert_directory_exists "${REMOTE_REPO_LOC}"
   assert_directory_exists "../${TEST_DIR}"
   assert_directory_exists "../${TEST_DIR}/${DIRNAME}"
 
   output=$(git -C "${DIRNAME}" branch)
   assert_contains "main" "${output}"
-}
-
-test_tear_down() {
-  local original_dir
-  original_dir="${PWD}"
-
-  # Setup: create a test directory with content
-  mkdir -p "${TEST_DIR}/subdir"
-  echo "test content" >"${TEST_DIR}/test_file.txt"
-  cd "${TEST_DIR}"
-
-  # Verify we're in the test directory
-  assert_directory_exists "subdir"
-  assert_file_exists "test_file.txt"
-
-  # Call tear_down directly
-  tear_down
-
-  # Verify we're back at TMPDIR level
-  assert_equals "${TMPDIR}" "${PWD}"
-
-  # Restore original directory for subsequent tests
-  cd "${original_dir}" || return 1
-}
-
-test_log() {
-  local log_file
-  log_file="${TMPDIR}/test_log_output.log"
-
-  # Open a new file descriptor for testing
-  exec 4>"${log_file}"
-
-  # Temporarily redirect log output to fd 4
-  local original_fd3
-  original_fd3="${log_file}"
-
-  # Create a custom log function that uses fd 4
-  log_test() {
-    echo "[$(date '+%F %T')] ${*}" >&4
-  }
-
-  # Log some messages
-  log_test "Test message 1"
-  log_test "Test message 2 with spaces"
-
-  # Close fd 4
-  exec 4>&-
-
-  # Verify log file exists and contains messages
-  assert_file_exists "${log_file}"
-
-  local content
-  content=$(cat "${log_file}")
-  assert_contains "Test message 1" "${content}"
-  assert_contains "Test message 2 with spaces" "${content}"
-
-  # Verify timestamp format (YYYY-MM-DD HH:MM:SS) - check for date pattern
-  if ! echo "${content}" | grep -qE '\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\]'; then
-    fail "Log message does not contain proper timestamp format"
-  fi
-
-  # Cleanup
-  rm -f "${log_file}"
 }

@@ -259,3 +259,33 @@ test_init_remote_inaccessible() {
   # Project should NOT be created
   assert_directory_not_exists "${project_name}"
 }
+
+test_init_can_create_worktree_from_main() {
+  # TDD: Test that documents expected behavior
+  # After git-wt-init, creating a worktree from main branch should work
+  # This test currently FAILS - documents a bug that needs to be fixed
+  local project_name="test_worktree_from_main"
+  local worktree_branch="feature/test-from-main"
+  local worktree_dir="feature-test-from-main"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  # Step 1: Initialize project
+  ${CMD_TESTING} "${project_name}"
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/main"
+  
+  # Step 2: Try to create worktree from main branch
+  # This currently fails with "invalid reference: main" error
+  cd "${project_name}"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "${worktree_branch}" main
+  
+  # Step 3: Verify worktree was created
+  # This assertion will fail until the bug is fixed
+  assert_directory_exists "${worktree_dir}"
+  
+  # Cleanup
+  cd ..
+  rm -rf "${project_name}"
+}
