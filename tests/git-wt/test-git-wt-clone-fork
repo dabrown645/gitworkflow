@@ -1,0 +1,403 @@
+#!/usr/bin/env bash
+CMD=git-wt-clone-fork
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
+
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
+}
+test_remote_repo_loc() {
+  assert_directory_exists "${REMOTE_REPO_LOC}"
+}
+
+test_fork_clone_help() {
+  local output
+  output=$(${CMD_TESTING} --help 2>&1)
+  assert_contains "Usage:" "${output}"
+  assert_contains "fork-url" "${output}"
+  assert_contains "upstream-url" "${output}"
+  assert_exit_code 0
+}
+
+test_fork_clone_invalid_args() {
+  local output
+  
+  # No arguments
+  output=$(${CMD_TESTING} 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
+  
+  # Only one argument
+  output=$(${CMD_TESTING} "fork-url" 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
+  
+  # Too many arguments (4)
+  output=$(${CMD_TESTING} "url1" "url2" "dir" "extra" 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
+}
+
+test_fork_clone_creates_structure() {
+  local fork_remote="${TMPDIR}/fork_remote_$$"
+  local upstream_remote="${TMPDIR}/upstream_remote_$$"
+  local clone_dir="fork_clone_test"
+  
+  # Create upstream repo
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  # Create fork repo
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  # Create temp repo, push to fork
+  mkdir -p "${TMPDIR}/temp_fork"
+  cd "${TMPDIR}/temp_fork"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Fork Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Clone fork with upstream
+  local output
+  output=$(${CMD_TESTING} "${fork_remote}" "${upstream_remote}" "${clone_dir}")
+  
+  # Verify directory was created
+  assert_directory_exists "${clone_dir}"
+  
+  # Verify .git structure
+  assert_directory_exists "${clone_dir}/.git"
+  
+  # Verify main worktree exists
+  assert_directory_exists "${clone_dir}/main"
+  
+  # Cleanup
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_fork"
+}
+
+test_fork_clone_sets_up_upstream() {
+  local fork_remote="${TMPDIR}/fork_remote2_$$"
+  local upstream_remote="${TMPDIR}/upstream_remote2_$$"
+  local clone_dir="fork_upstream_test"
+  
+  # Create upstream repo with content
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_upstream"
+  cd "${TMPDIR}/temp_upstream"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Upstream Test" > README.md
+  git add README.md
+  git commit -m "Upstream commit"
+  git remote add origin "${upstream_remote}"
+  git push origin main
+  
+  # Create fork repo
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_fork2"
+  cd "${TMPDIR}/temp_fork2"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Fork Test" > README.md
+  git add README.md
+  git commit -m "Fork commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Clone fork with upstream
+  ${CMD_TESTING} "${fork_remote}" "${upstream_remote}" "${clone_dir}"
+  
+  # Verify upstream remote is configured
+  cd "${clone_dir}/main"
+  local upstream_url
+  upstream_url=$(git remote get-url upstream 2>/dev/null || echo "")
+  assert_equals "${upstream_remote}" "${upstream_url}"
+  
+  # Verify origin remote points to fork
+  local origin_url
+  origin_url=$(git remote get-url origin 2>/dev/null || echo "")
+  assert_equals "${fork_remote}" "${origin_url}"
+  
+  # Cleanup
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_fork2" "${TMPDIR}/temp_upstream"
+}
+
+test_fork_clone_dir_name_from_url() {
+  local fork_remote="${TMPDIR}/myrepo.git"
+  local upstream_remote="${TMPDIR}/upstream.git"
+  
+  # Create repos
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  # Push content to fork
+  mkdir -p "${TMPDIR}/temp_dir"
+  cd "${TMPDIR}/temp_dir"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Clone without specifying directory name
+  ${CMD_TESTING} "${fork_remote}" "${upstream_remote}"
+  
+  # Directory should be named "myrepo" (from "myrepo.git")
+  assert_directory_exists "myrepo"
+  assert_directory_exists "myrepo/main"
+  
+  # Cleanup
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_dir"
+}
+
+test_fork_clone_success_output() {
+  local fork_remote="${TMPDIR}/fork_output_$$"
+  local upstream_remote="${TMPDIR}/upstream_output_$$"
+  local clone_dir="fork_output_test"
+  
+  # Create repos
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_output"
+  cd "${TMPDIR}/temp_output"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  local output
+  output=$(${CMD_TESTING} "${fork_remote}" "${upstream_remote}" "${clone_dir}")
+  
+  # Verify success messages
+  assert_contains "✅ Fork cloned successfully" "${output}"
+  assert_contains "✅ Upstream remote added" "${output}"
+  assert_contains "✅ Upstream branches fetched" "${output}"
+  
+  # Verify usage instructions
+  assert_contains "Remotes:" "${output}"
+  assert_contains "To sync with upstream:" "${output}"
+  assert_contains "To create worktrees from upstream branches:" "${output}"
+  assert_contains "To list all worktrees:" "${output}"
+  
+  # Cleanup
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_output"
+}
+
+test_fork_clone_invalid_fork_url() {
+  local upstream_remote="${TMPDIR}/upstream_invalid_$$"
+  
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  cd "${TMPDIR}"
+  
+  local output
+  local exit_code=0
+  output=$(${CMD_TESTING} "invalid://not-a-valid-url" "${upstream_remote}" "test_invalid" 2>&1) || exit_code=$?
+  
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "Cloning" "${output}"
+  
+  rm -rf "${upstream_remote}"
+}
+
+test_fork_clone_help_example() {
+  # Test that help includes example (coverage gap #1)
+  local output
+  output=$(${CMD_TESTING} --help 2>&1)
+  assert_contains "Example:" "${output}"
+  assert_contains "github.com" "${output}"
+  assert_contains ".git" "${output}"
+}
+
+test_fork_clone_dir_already_exists() {
+  # Test when directory already exists (coverage gap #3)
+  local fork_remote="${TMPDIR}/fork_exists_$$"
+  local upstream_remote="${TMPDIR}/upstream_exists_$$"
+  local clone_dir="existing_fork_dir"
+  
+  # Create repos
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_exists"
+  cd "${TMPDIR}/temp_exists"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Create the directory beforehand (after cd to TMPDIR)
+  mkdir -p "${clone_dir}"
+  
+  local output
+  local exit_code=0
+  output=$(${CMD_TESTING} "${fork_remote}" "${upstream_remote}" "${clone_dir}" 2>&1) || exit_code=$?
+  
+  # Should fail because directory exists (delegated to git-wt-clone)
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "already exists" "${output}"
+  
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_exists" "${clone_dir}"
+}
+
+# @data_provider provider_fork_clone_special_chars
+function test_fork_clone_special_chars_::1::_in_url() {
+  local url_pattern="$1"
+  local clone_dir="fork_special_$$"
+  
+  local fork_remote="${TMPDIR}/fork${url_pattern}"
+  local upstream_remote="${TMPDIR}/upstream${url_pattern}"
+  
+  # Create repos with special characters in path
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${upstream_remote}"
+  cd "${upstream_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_special_$$"
+  cd "${TMPDIR}/temp_special_$$"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Clone with special characters in URL
+  ${CMD_TESTING} "${fork_remote}" "${upstream_remote}" "${clone_dir}"
+  
+  # Verify clone succeeded
+  assert_directory_exists "${clone_dir}"
+  assert_directory_exists "${clone_dir}/main"
+  
+  # Verify both remotes are configured
+  cd "${clone_dir}/main"
+  local origin_url
+  origin_url=$(git remote get-url origin 2>/dev/null || echo "")
+  assert_equals "${fork_remote}" "${origin_url}"
+  
+  local upstream_url
+  upstream_url=$(git remote get-url upstream 2>/dev/null || echo "")
+  assert_equals "${upstream_remote}" "${upstream_url}"
+  
+  cd "${TMPDIR}"
+  rm -rf "${fork_remote}" "${upstream_remote}" "${TMPDIR}/temp_special_$$" "${clone_dir}"
+}
+
+function provider_fork_clone_special_chars() {
+  # Test various special characters in URL paths
+  # Format: bashunit::data_set "url_suffix_pattern"
+  
+  # Hyphens and underscores
+  bashunit::data_set "_test-repo"
+  # Dots in name
+  bashunit::data_set ".v1.0.0"
+  # Mixed special characters
+  bashunit::data_set "_my-repo.v2"
+  # Numbers
+  bashunit::data_set "_123-test"
+  # Multiple dots
+  bashunit::data_set "..backup"
+}
+
+test_fork_clone_upstream_fetch_failure() {
+  # Test when upstream fetch fails (coverage gap #4)
+  # Use a valid fork but invalid upstream that git remote add accepts but fetch fails
+  local fork_remote="${TMPDIR}/fork_fetch_fail_$$"
+  local clone_dir="fetch_fail_test"
+  
+  # Create fork repo with content
+  mkdir -p "${fork_remote}"
+  cd "${fork_remote}"
+  git init --bare .
+  
+  mkdir -p "${TMPDIR}/temp_fetch"
+  cd "${TMPDIR}/temp_fetch"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${fork_remote}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  local output
+  local exit_code=0
+  # Use a non-existent path as upstream URL
+  output=$(${CMD_TESTING} "${fork_remote}" "/nonexistent/upstream/repo.git" "${clone_dir}" 2>&1) || exit_code=$?
+  
+  # Should fail during upstream fetch
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "upstream" "${output}"
+  
+  rm -rf "${fork_remote}" "${TMPDIR}/temp_fetch"
+}
+
+# Above here comes from testing template tests/utils/model-test
+# You will need to supply the command name being tested
+#^^^^^^^^^^^^^^^^

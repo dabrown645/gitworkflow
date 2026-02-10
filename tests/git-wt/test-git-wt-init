@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+CMD=git-wt-init
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/${CMD}"
+
+test_cmd_exists() {
+  assert_file_exists "${CMD_TESTING}"
+}
+test_remote_repo_loc() {
+  assert_directory_exists "${REMOTE_REPO_LOC}"
+}
+
+# Above here comes from testing template tests/utils/model-test
+# You will need to supply the command name being tested
+#^^^^^^^^^^^^^^^^
+
+test_init_help_flag() {
+  local output
+  output=$(${CMD_TESTING} --help)
+  assert_contains "Usage:" "${output}"
+  assert_contains "Description:" "${output}"
+  assert_contains "Examples:" "${output}"
+  assert_exit_code 0
+  
+  output=$(${CMD_TESTING} -h)
+  assert_contains "Usage:" "${output}"
+  assert_exit_code 0
+}
+
+test_init_invalid_flags() {
+  local output
+  
+  output=$(${CMD_TESTING} --invalid-flag 2>&1)
+  assert_exit_code 1
+  assert_contains "Invalid flag" "${output}"
+  assert_contains "Usage:" "${output}"
+  
+  output=$(${CMD_TESTING} -x 2>&1)
+  assert_exit_code 1
+  assert_contains "Invalid flag" "${output}"
+}
+
+test_init_no_arguments() {
+  local output
+  output=$(${CMD_TESTING} 2>&1)
+  assert_exit_code 1
+  assert_contains "You must supply" "${output}"
+  assert_contains "Usage:" "${output}"
+}
+
+test_init_too_many_arguments() {
+  local output
+  output=$(${CMD_TESTING} arg1 arg2 arg3 2>&1)
+  assert_exit_code 1
+  assert_contains "Usage:" "${output}"
+}
+
+test_init_project_name_only() {
+  local project_name="test_project_only"
+  
+  # Clean up if exists from previous test
+  rm -rf "${project_name}"
+  
+  ${CMD_TESTING} "${project_name}"
+  
+  # Verify project was created
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/main"
+  assert_directory_exists "${project_name}/.git"
+  
+  # Cleanup
+  rm -rf "${project_name}"
+}
+
+test_init_with_git_url() {
+  # Create a local "remote" repo to use as the URL (with .git suffix)
+  local remote_repo="${TMPDIR}/remote_for_url_test.git"
+  mkdir -p "${remote_repo}"
+  cd "${remote_repo}"
+  git init --bare .
+  
+  # Create a temp repo and push to it
+  mkdir -p "${TMPDIR}/temp_url"
+  cd "${TMPDIR}/temp_url"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${remote_repo}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  local expected_name="remote_for_url_test"
+  
+  # Clean up if exists
+  rm -rf "${expected_name}"
+  
+  ${CMD_TESTING} "${remote_repo}"
+  
+  # Verify project name was extracted from URL
+  assert_directory_exists "${expected_name}"
+  assert_directory_exists "${expected_name}/main"
+  
+  # Cleanup
+  rm -rf "${expected_name}" "${remote_repo}" "${TMPDIR}/temp_url"
+}
+
+test_init_project_name_with_remote() {
+  local project_name="test_project_remote"
+  local remote_repo="${TMPDIR}/remote_for_project_test"
+  
+  # Create a local "remote" repo
+  mkdir -p "${remote_repo}"
+  cd "${remote_repo}"
+  git init --bare .
+  
+  # Create a temp repo and push to it
+  mkdir -p "${TMPDIR}/temp_project"
+  cd "${TMPDIR}/temp_project"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Test" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "${remote_repo}"
+  git push origin main
+  
+  cd "${TMPDIR}"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  ${CMD_TESTING} "${project_name}" "${remote_repo}"
+  
+  # Verify project was created
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/main"
+  
+  # Cleanup
+  rm -rf "${project_name}" "${remote_repo}" "${TMPDIR}/temp_project"
+}
+
+test_init_directory_already_exists() {
+  # Test error when project directory already exists
+  local project_name="existing_project"
+  
+  # Create directory beforehand
+  mkdir -p "${project_name}"
+  
+  local output
+  local exit_code=0
+  output=$(${CMD_TESTING} "${project_name}" 2>&1) || exit_code=$?
+  
+  # Should fail
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "already exists" "${output}"
+  
+  # Cleanup
+  rm -rf "${project_name}"
+}
+
+test_init_project_name_extraction() {
+  # Test project name extraction with special characters
+  local project_name="my-project_v1.0"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  ${CMD_TESTING} "${project_name}"
+  
+  # Verify project created with exact name
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/main"
+  
+  # Cleanup
+  rm -rf "${project_name}"
+}
+
+test_init_default_branch_from_config() {
+  # Test reading default branch from git config
+  local project_name="test_default_branch"
+  local original_branch
+  original_branch=$(git config --global init.defaultBranch 2>/dev/null || echo "main")
+  
+  # Set a custom default branch
+  git config --global init.defaultBranch "master"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  ${CMD_TESTING} "${project_name}"
+  
+  # Verify project uses configured default branch
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/master"
+  
+  # Cleanup
+  rm -rf "${project_name}"
+  
+  # Restore original default branch
+  if [ -n "$original_branch" ]; then
+    git config --global init.defaultBranch "$original_branch"
+  else
+    git config --global --unset init.defaultBranch 2>/dev/null || true
+  fi
+}
+
+test_init_success_output_format() {
+  # Test output format
+  local project_name="test_output_format"
+  local output
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  output=$(${CMD_TESTING} "${project_name}")
+  
+  # Verify success messages
+  assert_contains "✅ Project initialized successfully" "${output}"
+  assert_contains "✅ Worktree for main branch: ${project_name}/main" "${output}"
+  
+  # Verify directory structure output
+  assert_contains "Directory structure:" "${output}"
+  assert_contains "${project_name}/" "${output}"
+  assert_contains "main" "${output}"
+  
+  # Verify next steps
+  assert_contains "Next steps:" "${output}"
+  assert_contains "To add a new branch worktree:" "${output}"
+  assert_contains "git-wt-add" "${output}"
+  
+  # Cleanup
+  rm -rf "${project_name}"
+}
+
+test_init_remote_inaccessible() {
+  # Test when remote URL is inaccessible (Option 1: non-existent path)
+  local project_name="test_bad_remote"
+  local bad_remote="/nonexistent/path/to/repo.git"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  local output
+  local exit_code=0
+  output=$(${CMD_TESTING} "${project_name}" "${bad_remote}" 2>&1) || exit_code=$?
+  
+  # Should fail with error about inaccessible remote
+  assert_not_equals 0 "${exit_code}"
+  assert_contains "Could not access" "${output}"
+  assert_contains "${bad_remote}" "${output}"
+  
+  # Project should NOT be created
+  assert_directory_not_exists "${project_name}"
+}
+
+test_init_can_create_worktree_from_main() {
+  # TDD: Test that documents expected behavior
+  # After git-wt-init, creating a worktree from main branch should work
+  # This test currently FAILS - documents a bug that needs to be fixed
+  local project_name="test_worktree_from_main"
+  local worktree_branch="feature/test-from-main"
+  local worktree_dir="feature-test-from-main"
+  
+  # Clean up if exists
+  rm -rf "${project_name}"
+  
+  # Step 1: Initialize project
+  ${CMD_TESTING} "${project_name}"
+  assert_directory_exists "${project_name}"
+  assert_directory_exists "${project_name}/main"
+  
+  # Step 2: Try to create worktree from main branch
+  # This currently fails with "invalid reference: main" error
+  cd "${project_name}"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "${worktree_branch}" main
+  
+  # Step 3: Verify worktree was created
+  # This assertion will fail until the bug is fixed
+  assert_directory_exists "${worktree_dir}"
+  
+  # Cleanup
+  cd ..
+  rm -rf "${project_name}"
+}

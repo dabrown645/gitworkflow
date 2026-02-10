@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+# Integration Test: Full Project Lifecycle
+# Uses bashunit framework for consistency
+
+CMD=integration-lifecycle
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+test_basic_project_lifecycle() {
+  local project_name="basic_lifecycle"
+  local worktree_branch="feature/test-worktree"
+  local worktree_dir="feature-test-worktree"
+  
+  # Step 1: Initialize project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  assert_directory_exists "$project_name"
+  assert_directory_exists "$project_name/main"
+  assert_directory_exists "$project_name/.git"
+  
+  # Step 2: Add worktree
+  cd "$project_name"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_branch"
+  assert_directory_exists "$worktree_dir"
+  
+  # Step 3: Check status
+  local status_output
+  status_output=$(${BRANCH_TOPLEVEL}/bin/git-wt-status 2>&1)
+  assert_contains "main" "$status_output"
+  assert_contains "$worktree_dir" "$status_output"
+  
+  # Step 4: Remove worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-remove "$worktree_dir"
+  assert_directory_not_exists "$worktree_dir"
+  
+  # Step 5: Verify main still exists
+  assert_directory_exists "main"
+}
+
+test_multiple_worktrees() {
+  local project_name="multi_worktree"
+  local branches=("feature/one" "feature/two" "bugfix/three")
+  local dirs=("feature-one" "feature-two" "bugfix-three")
+  
+  # Initialize project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Add multiple worktrees
+  for branch in "${branches[@]}"; do
+    ${BRANCH_TOPLEVEL}/bin/git-wt-add "$branch"
+  done
+  
+  # Verify all exist
+  for dir in "${dirs[@]}"; do
+    assert_directory_exists "$dir"
+  done
+  
+  # Verify status shows all
+  local status_output
+  status_output=$(${BRANCH_TOPLEVEL}/bin/git-wt-status 2>&1)
+  for dir in "${dirs[@]}"; do
+    assert_contains "$dir" "$status_output"
+  done
+  
+  # Remove all worktrees
+  for dir in "${dirs[@]}"; do
+    ${BRANCH_TOPLEVEL}/bin/git-wt-remove "$dir"
+    assert_directory_not_exists "$dir"
+  done
+}
+
+test_worktree_from_base_branch() {
+  local project_name="base_branch"
+  local base_branch="develop"
+  local new_branch="feature/from-develop"
+  local worktree_dir="feature-from-develop"
+  
+  # Initialize project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Create base branch with commit
+  cd main
+  git checkout -b "$base_branch"
+  echo "# Develop" > README.md
+  git add README.md
+  git commit -m "Develop commit"
+  cd ..
+  
+  # Create worktree from base branch
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$new_branch" "$base_branch"
+  assert_directory_exists "$worktree_dir"
+  
+  # Verify correct branch
+  local current_branch
+  current_branch=$(cd "$worktree_dir" && git rev-parse --abbrev-ref HEAD)
+  assert_equals "$new_branch" "$current_branch"
+  
+  # Cleanup worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-remove "$worktree_dir"
+}
+
+test_error_recovery() {
+  local project_name="error_recovery"
+  local worktree_name="feature/error-test"
+  local worktree_dir="feature-error-test"
+  
+  # Initialize project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Test: git-wt-add with no args should fail
+  local exit_code=0
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add 2>/dev/null || exit_code=$?
+  assert_not_equals 0 "$exit_code"
+  
+  # Create worktree successfully
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_name"
+  assert_directory_exists "$worktree_dir"
+  
+  # Test: duplicate worktree should fail
+  exit_code=0
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_name" 2>/dev/null || exit_code=$?
+  assert_not_equals 0 "$exit_code"
+  
+  # Remove worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-remove "$worktree_dir"
+  assert_directory_not_exists "$worktree_dir"
+}

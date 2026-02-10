@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+
+# Integration Test: Complete Workflows
+# Uses bashunit framework for consistency
+
+CMD=workflow-integration
+
+source "$(cd "${BASH_SOURCE[0]%/*}/../utils" && pwd)/common_test_functions"
+
+test_complete_workflow_with_auto_setup() {
+  local project_name="complete_workflow_test"
+  local worktree_branch="feature/integration-test"
+  local worktree_dir="feature-integration-test"
+  
+  # Initialize as worktree project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Add files to main worktree
+  cd main
+  echo '{"name": "integration-test", "dependencies": {"lodash": "^4.17.21"}}' > package.json
+  echo "requests==2.31.0" > requirements.txt
+  echo '[package]' > pyproject.toml
+  echo 'name = "python-integration-test"' >> pyproject.toml
+  git add .
+  git commit -m "Initial project setup"
+  cd ..
+  
+  # Add worktree with auto-setup from main branch
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_branch" main --auto-setup
+  
+  # Verify worktree created with files
+  assert_directory_exists "$worktree_dir"
+  assert_file_exists "$worktree_dir/package.json"
+  assert_file_exists "$worktree_dir/requirements.txt"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$project_name"
+}
+
+test_clone_and_workflow() {
+  local main_repo="clone_workflow_main"
+  local clone_name="cloned-project"
+  local feature_branch="feature/cloned-test"
+  local worktree_branch="feature/from-cloned"
+  
+  # Create main repository
+  mkdir -p "$main_repo"
+  cd "$main_repo"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Main Repo" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  cd ..
+  
+  # Clone the repo
+  ${BRANCH_TOPLEVEL}/bin/git-wt-clone "$(pwd)/$main_repo" "$clone_name"
+  assert_directory_exists "$clone_name"
+  assert_directory_exists "$clone_name/main"
+  
+  # Create a feature branch in cloned repo
+  cd "$clone_name/main"
+  git checkout -b "$feature_branch"
+  echo "cloned feature" > feature.txt
+  git add feature.txt
+  git commit -m "Add cloned feature"
+  cd ../..
+  
+  # Add worktree from cloned repo
+  cd "$clone_name"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_branch" "$feature_branch"
+  assert_directory_exists "${worktree_branch//\//-}"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$main_repo" "$clone_name"
+}
+
+test_fork_workflow() {
+  local main_repo="fork_workflow_main"
+  local fork_name="forked-project"
+  local upstream_repo="fork_workflow_upstream"
+  local worktree_branch="feature/from-fork"
+  
+  # Create upstream repository
+  mkdir -p "$upstream_repo"
+  cd "$upstream_repo"
+  git init --bare .
+  cd ..
+  
+  # Create main repository and push to upstream
+  mkdir -p "$main_repo"
+  cd "$main_repo"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+  echo "# Main Repo" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+  git remote add origin "$(pwd)/../$upstream_repo"
+  git push origin main
+  cd ..
+  
+  # Fork clone
+  ${BRANCH_TOPLEVEL}/bin/git-wt-clone-fork "$(pwd)/$main_repo" "$(pwd)/$upstream_repo" "$fork_name"
+  assert_directory_exists "$fork_name"
+  assert_directory_exists "$fork_name/main"
+  
+  # Verify remotes
+  cd "$fork_name/main"
+  local origin_url
+  origin_url=$(git remote get-url origin 2>/dev/null || echo "")
+  assert_contains "$main_repo" "$origin_url"
+  
+  local upstream_url
+  upstream_url=$(git remote get-url upstream 2>/dev/null || echo "")
+  assert_contains "$upstream_repo" "$upstream_url"
+  cd ../..
+  
+  # Add worktree from fork
+  cd "$fork_name"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_branch"
+  assert_directory_exists "${worktree_branch//\//-}"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$main_repo" "$fork_name" "$upstream_repo"
+}
+
+test_plugin_integration() {
+  local project_name="plugin_integration_test"
+  local worktree_name="feature/plugin-js"
+  local worktree_dir="feature-plugin-js"
+  
+  # Initialize as worktree project first
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Create worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_name"
+  assert_directory_exists "$worktree_dir"
+  
+  # Add JS files to the worktree
+  cd "$worktree_dir"
+  echo '{"name": "plugin-test", "dependencies": {"test": "^1.0.0"}}' > package.json
+  git add package.json
+  git commit -m "Add JS files"
+  cd ..
+  
+  # Enable and setup plugin
+  ${BRANCH_TOPLEVEL}/bin/plugin-manager enable javascript >/dev/null 2>&1 || true
+  
+  local plugin_output
+  plugin_output=$(${BRANCH_TOPLEVEL}/bin/plugin-manager list-status "$worktree_dir" 2>&1)
+  assert_contains "JavaScript" "$plugin_output"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$project_name"
+  ${BRANCH_TOPLEVEL}/bin/plugin-manager disable javascript >/dev/null 2>&1 || true
+}
+
+test_status_workflow() {
+  local project_name="status_workflow_test"
+  local branch1="feature/status-test-1"
+  local branch2="feature/status-test-2"
+  
+  # Initialize project with multiple worktrees
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Add multiple worktrees
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$branch1"
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$branch2"
+  
+  # Get status
+  local status_output
+  status_output=$(${BRANCH_TOPLEVEL}/bin/git-wt-status 2>&1)
+  
+  # Verify all worktrees shown
+  assert_contains "main" "$status_output"
+  assert_contains "${branch1//\//-}" "$status_output"
+  assert_contains "${branch2//\//-}" "$status_output"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$project_name"
+}
+
+test_remove_workflow() {
+  local project_name="remove_workflow_test"
+  local worktree_name="feature/to-remove"
+  local worktree_dir="feature-to-remove"
+  
+  # Initialize project
+  ${BRANCH_TOPLEVEL}/bin/git-wt-init "$project_name"
+  cd "$project_name"
+  
+  # Create worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-add "$worktree_name"
+  assert_directory_exists "$worktree_dir"
+  
+  # Add a file and commit (so it's not empty)
+  cd "$worktree_dir"
+  echo "test content" > test.txt
+  git add test.txt
+  git commit -m "Add test file"
+  cd ..
+  
+  # Remove worktree
+  ${BRANCH_TOPLEVEL}/bin/git-wt-remove "$worktree_dir"
+  assert_directory_not_exists "$worktree_dir"
+  
+  # Verify main still exists
+  assert_directory_exists "main"
+  
+  # Cleanup
+  cd ..
+  rm -rf "$project_name"
+}

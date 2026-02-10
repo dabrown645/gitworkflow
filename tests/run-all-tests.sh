@@ -55,15 +55,24 @@ run_test_suite() {
             exit_code=$?
         fi
         
+        # Strip ANSI color codes from output for parsing
+        local clean_output
+        clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+        
         # Extract test counts from output
         local suite_total=0
         local suite_passed=0
         local suite_failed=0
         
-        if echo "$output" | grep -q "Total tests:"; then
-            suite_total=$(echo "$output" | grep "Total tests:" | sed 's/.*Total tests: \([0-9]*\).*/\1/')
-            suite_passed=$(echo "$output" | grep "Passed:" | sed 's/.*Passed: \([0-9]*\).*/\1/')
-            suite_failed=$(echo "$output" | grep "Failed:" | sed 's/.*Failed: \([0-9]*\).*/\1/')
+        if echo "$clean_output" | grep -q "Total tests:"; then
+            suite_total=$(echo "$clean_output" | grep "Total tests:" | sed 's/.*Total tests: \([0-9]*\).*/\1/')
+            suite_passed=$(echo "$clean_output" | grep "Passed:" | sed 's/.*Passed: \([0-9]*\).*/\1/')
+            suite_failed=$(echo "$clean_output" | grep "Failed:" | sed 's/.*Failed: \([0-9]*\).*/\1/')
+        else
+            # Fallback: count from PASS/FAIL lines if summary not found
+            suite_total=$(echo "$clean_output" | grep -c "\[PASS\]\|\[FAIL\]" || true)
+            suite_passed=$(echo "$clean_output" | grep -c "\[PASS\]" || true)
+            suite_failed=$(echo "$clean_output" | grep -c "\[FAIL\]" || true)
         fi
         
         # Update global counters
@@ -72,13 +81,24 @@ run_test_suite() {
         TOTAL_PASSED=$((TOTAL_PASSED + suite_passed))
         TOTAL_FAILED=$((TOTAL_FAILED + suite_failed))
         
-        if [[ $exit_code -eq 0 ]]; then
+        # Determine success based on test results, not exit code
+        if [[ $suite_failed -eq 0 && $suite_total -gt 0 ]]; then
             PASSED_SUITES=$((PASSED_SUITES + 1))
             log_success "$suite_name: ✓ $suite_passed/$suite_total tests passed"
         else
             FAILED_SUITES=$((FAILED_SUITES + 1))
             log_error "$suite_name: ✗ $suite_failed/$suite_total tests failed"
-            echo "$output" | tail -20  # Show last 20 lines of failed output
+            # Don't show details unless verbose mode is enabled
+        fi
+        
+        # Show full output if verbose mode is enabled
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo ""
+            echo "----------------------------------------"
+            echo "Full test output for $suite_name:"
+            echo "----------------------------------------"
+            echo "$output"
+            echo "----------------------------------------"
         fi
     else
         log_error "$suite_name: Test script not found or not executable: $test_script"

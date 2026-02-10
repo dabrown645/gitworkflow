@@ -3,37 +3,43 @@
 # git-wt-status - List and manage worktrees
 # Usage: git-wt-status
 
-set -e
+main() {
+  local git_status=
+  local clean_git_status=
+  local change_count=
+  local commit_msg=
 
-echo "Git Worktrees Status"
-echo "===================="
-echo ""
-
-# List all worktrees
-git worktree list
-
-echo ""
-echo "Worktree Details:"
-echo "-----------------"
-
-while read -r worktree hash branch; do
-  cd "${worktree}" >/dev/null
-
-  # Check if worktree is clean
-  STATUS=$(git status --porcelain 2>/dev/null)
-  if [[ -z "${STATUS}" ]]; then
-    CLEAN_STATUS="✓ clean"
-  else
-    CHANGED_COUNT=$(echo "$STATUS" | wc -l)
-    CLEAN_STATUS="⚠ $CHANGED_COUNT changed files"
-  fi
-
-  # Get current commit info
-  COMMIT_MSG=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo "unknown")
-
-  echo "${worktree} -> ${branch} (${hash}) [${CLEAN_STATUS}]"
-  echo "  └─ $COMMIT_MSG"
+  echo "Git Worktrees Status"
+  echo "===================="
   echo ""
 
-  cd - >/dev/null
-done < <(git worktree list | grep -v bare)
+  # List all worktrees
+  git worktree list
+
+  echo ""
+  echo "Worktree Details:"
+  echo "-----------------"
+
+  while read -r worktree hash branch; do
+    pushd "${worktree}" >/dev/null || exit 1
+
+    # Check if worktree is clean
+    git_status=$(git status --porcelain 2>/dev/null)
+    if [[ -z "${git_status}" ]]; then
+      clean_git_status="✓ clean"
+    else
+      change_count=$(echo "$git_status" | wc -l)
+      clean_git_status="⚠ $change_count changed files"
+    fi
+
+    commit_msg=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo "unknown")
+
+    echo "${worktree} -> ${branch} (${hash}) [${clean_git_status}]"
+    echo "  └─ $commit_msg"
+    echo ""
+
+    popd >/dev/null || exit 1
+  done < <(git worktree list | grep -v bare)
+}
+
+(return 0 2>/dev/null) || main

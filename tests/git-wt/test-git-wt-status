@@ -1,0 +1,131 @@
+#!/usr/bin/bash/env bash
+
+BRANCH_TOPLEVEL=$(git rev-parse --show-toplevel)
+CMD_TESTING="${BRANCH_TOPLEVEL}/bin/git-wt-status"
+
+set_up() {
+  ORIG_DIR="${PWD}"
+  TMPDIR="$(mktemp -d)"
+  cd "${TMPDIR}" || fail "Could not cd into ${TMPDIR}"
+}
+
+tear_down() {
+  cd "${ORIG_DIR}" || exit 1
+  rm -rf "${TMPDIR}"
+}
+
+create_test_repo() {
+  REPO_DIR="test_repo"
+
+  mkdir "${REPO_DIR}"
+  pushd "${REPO_DIR}" || fail "Could not cd into test_repo directory"
+
+  git init --bare .git
+  git worktree add main
+  git -C main config user.name "John Doe"
+  git -C main config user.email "JohnDoe@example.com"
+  echo "# Test Repo" >main/README.md
+  git -C main add README.md
+  git -C main commit -m "Initial Commit"
+
+  popd || fail "Could not return from test_repo directory"
+}
+
+create_test_repo_worktree() {
+  local branch_name="${1}"
+  local branch_parent="${2}"
+  local branch_dir="${branch_name//\//-}"
+
+  if [[ -z "${branch_parent}" ]]; then
+    git worktree add -b "${branch_name}" "${branch_dir}"
+  else
+    git worktree add -b "${branch_name}" "${branch_dir}" "${branch_parent}"
+  fi
+}
+
+test_cmd_exist() {
+  assert_file_exists "${CMD_TESTING}"
+}
+
+test_basic_status() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$(git worktree list)
+  assert_contains "bare" "${output}"
+  assert_contains "main" "${output}"
+
+  output=$("$CMD_TESTING" 2>&1)
+  assert_contains "Git Worktrees Status" "${output}"
+  assert_contains "Worktree Details" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_get_correct_number_worktrees() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$("${CMD_TESTING}" | grep "${REPO_DIR}")
+  # There are 2 entries in Status and 1 in Details
+  assert_line_count "3" "${output}"
+
+  create_test_repo_worktree feature/first-worktree
+  # There are 3 entries in Status and 2 in Details
+  output=$("${CMD_TESTING}" 2>&1 | grep "${REPO_DIR}")
+  assert_line_count "5" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_clean_worktrees_detected() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$("${CMD_TESTING}" | grep "${REPO_DIR}")
+  assert_contains "clean" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_dirty_worktrees_detected() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  create_test_repo_worktree feature-first-worktree
+  touch feature-first-worktree/dirty.file
+  assert_file_exists "feature-first-worktree/dirty.file"
+  output=$("${CMD_TESTING}" 2>&1 | grep "${REPO_DIR}")
+  assert_contains "changed" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_if_log_entry_shown() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+  pushd "$REPO_DIR" || fail "Failed to cd into test_repo"
+
+  output=$("${CMD_TESTING}" 2>&1)
+  assert_contains "└─" "${output}"
+
+  popd || fail "Failed to return from test_repo"
+}
+
+test_not_in_git_directory() {
+  local output
+  create_test_repo
+  assert_directory_exists "${REPO_DIR}/main"
+
+  output=$("${CMD_TESTING}" 2>&1)
+  assert_contains "fatal" "${output}"
+}
